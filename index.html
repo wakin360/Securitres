@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08285f">
+  <title>University of the Assumption | Excuse Letter Desk</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4f5ef;
+      --surface: #ffffff;
+      --ink: #192720;
+      --muted: #68756d;
+      --line: #e2e7df;
+      --forest: #123c7a;
+      --forest-dark: #08285f;
+      --mint: #e4ebf7;
+      --coral: #c62432;
+      --coral-pale: #fae8ea;
+      --gold: #e2b51c;
+      --gold-pale: #f5efd9;
+      --shadow: 0 14px 36px rgba(58, 22, 35, .09);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Trebuchet MS", "Segoe UI", sans-serif; font-size: 14px; }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 246px minmax(0, 1fr); }
+    .sidebar { background: var(--forest-dark); color: #edf4ee; padding: 27px 17px 20px; display: flex; flex-direction: column; min-height: 100vh; }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 9px 32px; }
+    .brand-mark { width: 43px; height: 43px; flex: 0 0 43px; border-radius: 50%; object-fit: cover; background: white; }
+    .brand-name { font: 700 14px/1.15 Georgia, serif; letter-spacing: 0; }
+    .brand-sub { color: #e3c95e; text-transform: uppercase; font-size: 8px; letter-spacing: 1.1px; margin-top: 4px; }
+    .side-label { color: #aabbd8; text-transform: uppercase; letter-spacing: 1.4px; font-size: 9px; padding: 8px 12px; }
+    .nav { display: grid; gap: 5px; }
+    .nav button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border: 0; border-radius: 7px; background: transparent; color: #c5d6cb; text-align: left; font-size: 13px; }
+    .nav button:hover, .nav button.active { color: white; background: rgba(255,255,255,.12); }
+    .nav-icon { width: 21px; text-align: center; font-size: 11px; font-weight: 700; opacity: .85; }
+    .nav-count { margin-left: auto; min-width: 21px; padding: 3px 6px; border-radius: 12px; background: #e7a28b; color: #44251b; font-size: 10px; text-align: center; font-weight: 700; }
+    .side-foot { margin-top: auto; border-top: 1px solid rgba(255,255,255,.17); padding: 17px 10px 2px; color: #b8c7df; font-size: 10px; line-height: 1.65; }
+    .side-foot strong { color: white; font-weight: 600; }
+    main { min-width: 0; }
+    .topbar { min-height: 72px; position: relative; background: var(--forest-dark); border-bottom: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 38px 5px; gap: 16px; color: white; }
+    .topbar:after { content: ""; position: absolute; height: 5px; left: 0; right: 0; bottom: 0; background: linear-gradient(to right, #c62432 0 31%, #e2b51c 31% 56%, #123c7a 56% 100%); }
+    .crumb { color: #d1dced; font-size: 11px; }
+    .crumb b { color: white; font-weight: 600; }
+    .top-actions { display: flex; align-items: center; gap: 13px; }
+    .user-chip { display: flex; align-items: center; gap: 9px; border-left: 1px solid var(--line); padding-left: 15px; }
+    .avatar { width: 33px; height: 33px; border-radius: 50%; background: #e2b51c; color: #08285f; display: grid; place-items: center; font: 700 11px Georgia, serif; }
+    .user-name { font-size: 12px; font-weight: 700; }
+    .user-role { font-size: 10px; color: #c3d0e4; margin-top: 2px; }
+    .content { max-width: 1440px; padding: 34px 38px 55px; margin: auto; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 23px; }
+    .eyebrow { color: var(--coral); text-transform: uppercase; letter-spacing: 1.5px; font-size: 9px; font-weight: 700; margin-bottom: 8px; }
+    h1 { font: 500 31px Georgia, serif; letter-spacing: 0; margin: 0; }
+    .subtitle { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .primary { border: 0; border-radius: 5px; background: var(--forest); color: white; padding: 11px 15px; font-weight: 700; font-size: 12px; box-shadow: 0 4px 10px rgba(8,40,95,.16); }
+    .primary:hover { background: #1c4e92; }
+    .secondary { border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--ink); padding: 9px 12px; font-size: 12px; font-weight: 600; }
+    .secondary:hover { border-color: #9db9a8; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; margin-bottom: 21px; }
+    .stat { min-height: 106px; padding: 16px 17px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); display: flex; justify-content: space-between; align-items: flex-start; }
+    .stat-label { color: var(--muted); font-size: 11px; }
+    .stat-value { font: 500 29px Georgia, serif; margin-top: 12px; }
+    .stat-note { margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .stat-mark { width: 29px; height: 29px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--mint); color: var(--forest); }
+    .stat:nth-child(2) .stat-mark { background: var(--gold-pale); color: #8e6c21; }
+    .stat:nth-child(3) .stat-mark { background: var(--coral-pale); color: var(--coral); }
+    .stat:nth-child(4) .stat-mark { background: #e9ecea; color: #58685f; }
+    .workspace { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 17px; align-items: start; }
+    .panel { min-width: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 4px 16px rgba(27,48,37,.025); }
+    .panel-head { padding: 17px 19px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .panel-title { font: 600 17px Georgia, serif; }
+    .panel-kicker { color: var(--muted); font-size: 10px; margin-top: 4px; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; text-align: left; white-space: nowrap; }
+    th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #78847b; padding: 11px 18px; background: #f8f9f6; border-top: 1px solid #edf0eb; border-bottom: 1px solid #edf0eb; }
+    td { padding: 13px 18px; border-bottom: 1px solid #edf0eb; font-size: 11px; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #fbfcfa; }
+    .student-cell { display: flex; align-items: center; gap: 9px; }
+    .mini-avatar { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #e3eee7; color: var(--forest); font-size: 9px; font-weight: 700; }
+    .student-name { font-weight: 700; font-size: 11px; }
+    .student-id { font-size: 9px; color: var(--muted); margin-top: 3px; }
+    .status { display: inline-flex; align-items: center; gap: 5px; border-radius: 13px; padding: 5px 8px; font-size: 9px; font-weight: 700; }
+    .status:before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .pending { color: #8e6b1d; background: var(--gold-pale); }
+    .approved { color: #246549; background: #e1f0e7; }
+    .disapproved { color: #a54836; background: #fae7e2; }
+    .review-link { color: var(--forest); border: 0; background: transparent; font-size: 10px; font-weight: 700; padding: 5px; }
+    .review-link:hover { text-decoration: underline; }
+    .empty-state { text-align: center; padding: 38px 15px; color: var(--muted); font-size: 12px; }
+    .right-col { display: grid; gap: 15px; }
+    .notice { padding: 17px; background: #eff5ef; border: 1px solid #dce8de; border-radius: 7px; }
+    .notice-title { color: var(--forest); font: 600 15px Georgia, serif; }
+    .notice p { margin: 8px 0 13px; font-size: 10px; color: #5b6e60; line-height: 1.55; }
+    .notice .secondary { background: rgba(255,255,255,.7); }
+    .activity { padding: 0 17px 12px; }
+    .activity-item { display: grid; grid-template-columns: 21px 1fr; gap: 9px; padding: 10px 0; border-bottom: 1px solid #edf0eb; }
+    .activity-item:last-child { border-bottom: 0; }
+    .activity-dot { width: 19px; height: 19px; border-radius: 50%; background: var(--mint); color: var(--forest); display: grid; place-items: center; font-size: 9px; font-weight: 700; }
+    .activity-text { font-size: 10px; line-height: 1.4; }
+    .activity-time { margin-top: 4px; color: #88938a; font-size: 9px; }
+    .table-tools { display: flex; align-items: center; gap: 8px; }
+    .search { width: 145px; border: 1px solid var(--line); border-radius: 5px; padding: 8px 9px; font-size: 10px; outline: none; }
+    .search:focus, input:focus, select:focus, textarea:focus { border-color: #6b88b5; box-shadow: 0 0 0 3px rgba(18,60,122,.1); outline: none; }
+    .filter { border: 1px solid var(--line); border-radius: 5px; background: white; padding: 8px 24px 8px 8px; font-size: 10px; }
+    .screen { display: none; }
+    .screen.active { display: block; animation: appear .25s ease-out; }
+    @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .letter-layout { display: grid; grid-template-columns: minmax(0,1fr) 285px; gap: 17px; align-items: start; }
+    .form-panel { padding: 21px; }
+    .form-section { margin: 0 0 18px; padding: 0 0 18px; border-bottom: 1px solid #edf0eb; }
+    .form-section:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+    .section-title { font: 600 15px Georgia, serif; margin: 0 0 13px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1/-1; }
+    .field label { font-size: 10px; font-weight: 700; color: #4b5b51; }
+    .field input, .field select, .field textarea { width: 100%; border: 1px solid #dfe5dd; border-radius: 4px; background: #fff; padding: 10px; font-size: 11px; color: var(--ink); }
+    .field textarea { resize: vertical; min-height: 79px; line-height: 1.5; }
+    .upload { min-height: 92px; border: 1px dashed #a9bcae; border-radius: 5px; padding: 15px; background: #fafcf9; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); font-size: 10px; }
+    .upload input { display: block; max-width: 100%; margin: 8px auto 0; font-size: 10px; }
+    .evidence-preview { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 9px; }
+    .evidence-item { position: relative; width: 92px; min-height: 76px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: #f8f9f6; }
+    .evidence-item img { display: block; width: 100%; height: 62px; object-fit: cover; }
+    .evidence-name { display: block; overflow: hidden; padding: 4px; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .field-hint { color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .evidence-remove { position: absolute; top: 3px; right: 3px; width: 19px; height: 19px; border: 0; border-radius: 50%; background: rgba(8,40,95,.9); color: white; font-size: 13px; line-height: 1; }
+    .review-evidence { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+    .review-evidence a { display: block; width: 96px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; color: var(--forest); text-decoration: none; }
+    .review-evidence img { display: block; width: 94px; height: 70px; object-fit: cover; }
+    .review-evidence span { display: block; overflow: hidden; padding: 4px; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .form-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+    .side-note { padding: 17px; }
+    .side-note h3 { font: 600 15px Georgia, serif; margin: 0 0 10px; }
+    .side-note p { color: var(--muted); font-size: 10px; line-height: 1.6; margin: 0; }
+    .steps { margin-top: 15px; display: grid; gap: 12px; }
+    .step { display: grid; grid-template-columns: 21px 1fr; gap: 9px; align-items: start; font-size: 10px; line-height: 1.45; }
+    .step-number { width: 20px; height: 20px; background: #e4efe7; color: var(--forest); border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 700; }
+    .step strong { display: block; margin-bottom: 2px; font-size: 10px; }
+    .toolbar { display: flex; gap: 8px; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 5; background: rgba(14,31,23,.45); display: none; place-items: center; padding: 18px; }
+    .modal-backdrop.open { display: grid; }
+    .modal { width: min(620px, 100%); max-height: min(90vh, 820px); overflow: auto; background: var(--surface); border-radius: 8px; box-shadow: 0 24px 80px rgba(8,28,18,.25); animation: appear .18s ease-out; }
+    .modal-head { padding: 19px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; justify-content: space-between; }
+    .modal-head h2 { font: 600 20px Georgia, serif; margin: 0; }
+    .modal-head p { color: var(--muted); font-size: 10px; margin: 6px 0 0; }
+    .close { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 3px; }
+    .modal-content { padding: 20px 22px; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .detail-label { color: var(--muted); text-transform: uppercase; letter-spacing: .8px; font-size: 8px; margin-bottom: 5px; }
+    .detail-value { font-size: 11px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+    .detail-full { grid-column: 1/-1; }
+    .comment-box { margin-top: 15px; padding: 12px; background: #f7f8f5; border-radius: 5px; font-size: 10px; line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: space-between; gap: 8px; padding: 13px 22px; background: #fafbf9; border-top: 1px solid var(--line); }
+    .action-right { display: flex; gap: 8px; }
+    .danger { border: 1px solid #e4b1a5; background: white; color: #a54836; border-radius: 5px; padding: 9px 12px; font-size: 11px; font-weight: 700; }
+    .approve { border: 0; background: var(--forest); color: white; border-radius: 5px; padding: 9px 12px; font-size: 11px; font-weight: 700; }
+    .comment-field { margin-top: 15px; }
+    .comment-field textarea { width: 100%; min-height: 69px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; resize: vertical; }
+    .toast { position: fixed; right: 22px; bottom: 20px; z-index: 8; padding: 12px 16px; background: var(--forest-dark); color: white; border-radius: 5px; box-shadow: var(--shadow); font-size: 11px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .mobile-menu { display: none; }
+    @media (max-width: 1050px) {
+      .shell { grid-template-columns: 210px minmax(0,1fr); }
+      .content { padding: 28px 24px 45px; }
+      .topbar { padding: 0 24px; }
+      .workspace, .letter-layout { grid-template-columns: minmax(0,1fr) 245px; }
+      .stats { gap: 9px; }
+      .stat { padding: 14px; }
+    }
+    @media (max-width: 780px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { min-height: auto; padding: 11px 14px; flex-direction: row; align-items: center; gap: 9px; position: sticky; z-index: 2; top: 0; }
+      .brand { min-width: 0; gap: 7px; padding: 0 3px; }
+      .brand-mark { width: 34px; height: 34px; flex-basis: 34px; }
+      .brand-name { min-width: 0; font-size: 12px; }
+      .brand-sub { display: none; }
+      .side-label, .side-foot { display: none; }
+      .nav { margin-left: auto; display: flex; gap: 2px; }
+      .nav button { position: relative; width: auto; gap: 0; padding: 8px 5px; font-size: 0; }
+      .nav-icon { width: 18px; font-size: 10px; }
+      .nav-count { position: absolute; top: 0; right: -1px; min-width: 15px; padding: 2px 3px; font-size: 8px; margin: 0; }
+      .topbar { min-height: 57px; padding: 0 17px; }
+      .content { padding: 23px 17px 38px; }
+      .workspace, .letter-layout { grid-template-columns: 1fr; }
+      .right-col { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      h1 { font-size: 27px; }
+      .user-name, .user-role { display: none; }
+      .user-chip { padding-left: 10px; }
+    }
+    @media (max-width: 490px) {
+      .right-col { grid-template-columns: 1fr; }
+      .page-heading { align-items: flex-start; flex-direction: column; }
+      .page-heading .primary { align-self: stretch; }
+      .stats { gap: 8px; }
+      .stat { min-height: 98px; padding: 12px; }
+      .stat-value { font-size: 25px; }
+      .top-actions { gap: 7px; }
+      .form-grid, .detail-grid { grid-template-columns: 1fr; }
+      .detail-full { grid-column: auto; }
+      .panel-head { padding: 15px; }
+      .table-tools { gap: 5px; }
+      .search { width: 100px; }
+      .filter { max-width: 110px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><img class="brand-mark" src="ua-logo.png" alt="University of the Assumption seal"><div><div class="brand-name">University of the<br>Assumption</div><div class="brand-sub">Pampanga · Student Affairs</div></div></div>
+      <div class="side-label">Workspace</div>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="active" data-screen="dashboard"><span class="nav-icon">OV</span>Overview</button>
+        <button data-screen="letters"><span class="nav-icon">EL</span><span id="letters-nav-label">Excuse letters</span><span class="nav-count" id="nav-pending">0</span></button>
+        <button data-screen="history"><span class="nav-icon">HI</span>Letter history</button>
+      </nav>
+      <div class="side-foot"><strong>University of the Assumption</strong><br>San Fernando, Pampanga<br>Academic year 2026-2027</div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="crumb">Student Affairs <span aria-hidden="true">/</span> <b id="crumb-title">Overview</b></div>
+        <div class="top-actions"><div class="user-chip"><div class="avatar" id="user-avatar">MS</div><div><div class="user-name" id="user-name">Mika Santos</div><div class="user-role" id="user-role">Student account</div></div></div></div>
+      </header>
+      <div class="content">
+        <section class="screen active" id="screen-dashboard">
+          <div class="page-heading"><div><div class="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1 id="welcome-title">Good morning, Mika.</h1><p class="subtitle" id="welcome-subtitle">Your excuse letters, all in one place.</p></div><button class="primary" id="new-letter-top">+ &nbsp; New excuse letter</button></div>
+          <div class="stats" id="stats"></div>
+          <div class="workspace">
+            <section class="panel">
+              <div class="panel-head"><div><div class="panel-title" id="table-title">Recent letters</div><div class="panel-kicker" id="table-kicker">A quick look at your latest submissions</div></div><button class="secondary" data-go="history">View history</button></div>
+              <div class="table-wrap"><table><thead><tr><th>Student</th><th>Absence dates</th><th>Submitted</th><th>Status</th><th></th></tr></thead><tbody id="recent-rows"></tbody></table><div class="empty-state" id="recent-empty" hidden>Nothing here yet. New letters will appear as they are submitted.</div></div>
+            </section>
+            <aside class="right-col">
+              <section class="notice"><div class="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p><button class="secondary" id="notice-new">Start a letter &nbsp; →</button></section>
+              <section class="panel"><div class="panel-head"><div><div class="panel-title">Latest activity</div><div class="panel-kicker">Updates from the letter desk</div></div></div><div class="activity" id="activity-list"></div></section>
+            </aside>
+          </div>
+        </section>
+        <section class="screen" id="screen-letters">
+          <div class="page-heading"><div><div class="eyebrow">Excuse letter desk</div><h1 id="letters-heading">Excuse letters</h1><p class="subtitle" id="letters-subtitle">Review submissions and keep requests moving.</p></div><button class="primary" id="new-letter-list">+ &nbsp; New excuse letter</button></div>
+          <section class="panel"><div class="panel-head"><div><div class="panel-title">All letters</div><div class="panel-kicker" id="all-count">Your submissions and their current status</div></div><div class="table-tools"><input class="search" id="search-letters" type="search" placeholder="Search names or course" aria-label="Search letters"><select class="filter" id="status-filter" aria-label="Filter by status"><option value="all">All statuses</option><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Disapproved">Disapproved</option></select></div></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Course</th><th>Absence dates</th><th>Submitted</th><th>Status</th><th></th></tr></thead><tbody id="all-rows"></tbody></table><div class="empty-state" id="all-empty" hidden>No letters match this view.</div></div></section>
+        </section>
+        <section class="screen" id="screen-history">
+          <div class="page-heading"><div><div class="eyebrow">Records & decisions</div><h1>Letter history</h1><p class="subtitle">A record of submissions, decisions, and Dean comments.</p></div></div>
+          <section class="panel"><div class="panel-head"><div><div class="panel-title">Complete record</div><div class="panel-kicker" id="history-count">All submission activity</div></div><div class="table-tools"><input class="search" id="history-search" type="search" placeholder="Search history" aria-label="Search history"><select class="filter" id="history-filter" aria-label="Filter history by status"><option value="all">All statuses</option><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Disapproved">Disapproved</option></select></div></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Course</th><th>Submitted</th><th>Decision</th><th>Dean comment</th><th></th></tr></thead><tbody id="history-rows"></tbody></table><div class="empty-state" id="history-empty" hidden>No letters to show yet.</div></div></section>
+        </section>
+        <section class="screen" id="screen-submit">
+          <div class="page-heading"><div><div class="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p class="subtitle">Complete the form as it should appear on your school excuse letter.</p></div></div>
+          <div class="letter-layout">
+            <form class="panel form-panel" id="letter-form">
+              <div class="form-section"><h2 class="section-title">Student information</h2><div class="form-grid">
+                <div class="field"><label for="student-name">Full name *</label><input id="student-name" name="studentName" required placeholder="First and last name"></div>
+                <div class="field"><label for="student-number">Student number *</label><input id="student-number" name="studentNumber" required placeholder="e.g. 2024-01234"></div>
+                <div class="field"><label for="program">Program / year level *</label><input id="program" name="program" required placeholder="e.g. BSIT, 2nd year"></div>
+                <div class="field"><label for="email">School email *</label><input id="email" name="email" type="email" required placeholder="name@school.edu"></div>
+              </div></div>
+              <div class="form-section"><h2 class="section-title">Class and absence</h2><div class="form-grid">
+                <div class="field"><label for="course">Course / subject *</label><input id="course" name="course" required placeholder="e.g. Introduction to Computing"></div>
+                <div class="field"><label for="professor">Assigned professor *</label><input id="professor" name="professor" required placeholder="Professor's name"></div>
+                <div class="field"><label for="date-from">Absence from *</label><input id="date-from" name="dateFrom" type="date" required></div>
+                <div class="field"><label for="date-to">Absence to *</label><input id="date-to" name="dateTo" type="date" required></div>
+                <div class="field full"><label for="reason">Reason for absence *</label><textarea id="reason" name="reason" required placeholder="Briefly explain the reason for your absence"></textarea></div>
+              </div></div>
+              <div class="form-section"><h2 class="section-title">Supporting evidence</h2><div class="field"><label for="evidence">Attach supporting pictures or documents</label><div class="upload">Choose up to 3 images or PDFs, max 8 MB each<input id="evidence" name="evidence" type="file" accept="image/*,.pdf" multiple></div><div class="field-hint">Images are saved in this browser and visible to reviewers. PDFs show their filename only in this demo.</div><div class="evidence-preview" id="evidence-preview" aria-live="polite"></div></div></div>
+              <div class="form-actions"><button type="button" class="secondary" id="cancel-submit">Cancel</button><button class="primary" type="submit">Submit to Dean &nbsp; →</button></div>
+            </form>
+            <aside class="panel side-note"><h3>What happens next</h3><p>Your request goes to the Dean for review. Once a decision is made, the status and any comment appear in your history.</p><div class="steps"><div class="step"><div class="step-number">1</div><div><strong>Submit your request</strong>Fill in the details and attach relevant evidence.</div></div><div class="step"><div class="step-number">2</div><div><strong>Dean reviews it</strong>Student Affairs approves or declines with an optional note.</div></div><div class="step"><div class="step-number">3</div><div><strong>Professor is notified</strong>Approved letters become visible to the assigned professor.</div></div></div></aside>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div class="modal-backdrop" id="review-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal"><div class="modal-head"><div><h2 id="modal-title">Letter details</h2><p id="modal-subtitle">Review request</p></div><button class="close" id="modal-close" aria-label="Close">×</button></div><div class="modal-content" id="modal-content"></div><div class="modal-actions" id="modal-actions"></div></div></div>
+  <div class="toast" id="toast" role="status"></div>
+  <script>
+    const STORAGE_KEY = 'ua-excuse-letters-v1';
+    const starterLetters = [
+      { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
+      { id: 'UA-2026-0412', studentName: 'Jonah Reyes', studentNumber: '2023-00719', program: 'BS Accountancy, 3rd year', email: 'jonah.reyes@ua.edu', course: 'Cost Accounting', professor: 'Prof. Marco Dizon', dateFrom: '2026-10-12', dateTo: '2026-10-12', reason: 'Family emergency required me to travel home.', evidence: ['supporting-note.jpg'], submitted: '2026-10-13', status: 'Approved', comment: 'Approved. Please coordinate any missed assessment with your professor.' },
+      { id: 'UA-2026-0398', studentName: 'Aira Villanueva', studentNumber: '2025-02103', program: 'BS Psychology, 1st year', email: 'aira.v@ua.edu', course: 'General Psychology', professor: 'Prof. Nina Flores', dateFrom: '2026-10-08', dateTo: '2026-10-09', reason: 'I was recovering from a fever and was advised to rest.', evidence: ['medical-certificate.pdf'], submitted: '2026-10-10', status: 'Disapproved', comment: 'Please attach a readable copy of the supporting document and resubmit.' },
+      { id: 'UA-2026-0381', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Discrete Mathematics', professor: 'Prof. Elena Cruz', dateFrom: '2026-10-02', dateTo: '2026-10-02', reason: 'I had a scheduled medical appointment.', evidence: ['appointment-slip.png'], submitted: '2026-10-03', status: 'Approved', comment: 'Approved. Thank you for providing supporting evidence.' }
+    ];
+    let letters = loadLetters();
+    const allowedRoles = ['student', 'dean', 'professor'];
+    const requestedRole = new URLSearchParams(window.location.search).get('role');
+    let currentRole = allowedRoles.includes(requestedRole) ? requestedRole : 'student';
+    let currentLetterId = null;
+    let toastTimer;
+    let selectedEvidence = [];
+
+    function loadLetters() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved ? JSON.parse(saved) : starterLetters;
+      } catch { return starterLetters; }
+    }
+    function saveLetters() { localStorage.setItem(STORAGE_KEY, JSON.stringify(letters)); }
+    function formatDate(value) {
+      if (!value) return '—';
+      return new Date(value + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function dateRange(letter) {
+      return letter.dateFrom === letter.dateTo ? formatDate(letter.dateFrom) : `${formatDate(letter.dateFrom)} – ${formatDate(letter.dateTo)}`;
+    }
+    function initials(name) { return (name || '?').split(/\s+/).slice(0,2).map(part => part[0]).join('').toUpperCase(); }
+    function visibleLetters() {
+      if (currentRole === 'student') return letters.filter(letter => letter.studentName === 'Mika Santos');
+      if (currentRole === 'professor') return letters.filter(letter => letter.status === 'Approved' && letter.professor === 'Prof. Elena Cruz');
+      return letters;
+    }
+    function statusPill(status) { return `<span class="status ${status.toLowerCase()}">${status}</span>`; }
+    function htmlEscape(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
+    function initializeRole() {
+      const role = currentRole;
+      const people = { student: ['Mika Santos','MS','Student account'], dean: ['Dr. Amara Villanueva','AV','Dean / Admin'], professor: ['Prof. Elena Cruz','EC','Professor account'] };
+      const [name, avatar, label] = people[role];
+      document.getElementById('user-name').textContent = name;
+      document.getElementById('user-avatar').textContent = avatar;
+      document.getElementById('user-role').textContent = label;
+      document.getElementById('welcome-title').textContent = role === 'student' ? 'Good morning, Mika.' : role === 'dean' ? 'Good morning, Dean.' : 'Good morning, Professor.';
+      document.getElementById('welcome-subtitle').textContent = role === 'student' ? 'Your excuse letters, all in one place.' : role === 'dean' ? 'Review requests and record decisions.' : 'Approved excuse letters for your classes.';
+      document.getElementById('table-title').textContent = role === 'dean' ? 'Needs your review' : role === 'professor' ? 'Approved for your class' : 'Recent letters';
+      document.getElementById('table-kicker').textContent = role === 'dean' ? 'Pending requests are ready for a decision' : role === 'professor' ? 'Approved requests assigned to you' : 'A quick look at your latest submissions';
+      document.getElementById('letters-heading').textContent = role === 'dean' ? 'Review letters' : role === 'professor' ? 'Approved letters' : 'Excuse letters';
+      document.getElementById('letters-subtitle').textContent = role === 'dean' ? 'Review submissions and record a decision with an optional comment.' : role === 'professor' ? 'Only Dean-approved letters assigned to your classes appear here.' : 'Your submissions and their current status.';
+      document.getElementById('letters-nav-label').textContent = role === 'dean' ? 'Review queue' : role === 'professor' ? 'Approved letters' : 'My letters';
+      document.querySelectorAll('#new-letter-top, #new-letter-list, #notice-new').forEach(button => button.hidden = role !== 'student');
+      document.querySelector('[data-go="history"]').hidden = role === 'professor';
+      document.querySelector('[data-screen="history"]').hidden = role === 'professor';
+      document.querySelectorAll('[data-student-only]').forEach(element => element.hidden = role !== 'student');
+      render();
+    }
+    function renderStats() {
+      const items = visibleLetters();
+      const count = status => items.filter(letter => letter.status === status).length;
+      const values = [
+        ['Total letters', items.length, 'Across your records', 'EL'],
+        ['Awaiting review', count('Pending'), 'In the Dean’s queue', '…'],
+        ['Approved', count('Approved'), 'Ready to view', 'OK'],
+        ['Disapproved', count('Disapproved'), 'See Dean comments', 'NO']
+      ];
+      document.getElementById('stats').innerHTML = values.map(([label,value,note,mark]) => `<div class="stat"><div><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></div><div class="stat-mark">${mark}</div></div>`).join('');
+    }
+    function renderRows(targetId, items, mode) {
+      const target = document.getElementById(targetId);
+      const rows = items.map(letter => {
+        const student = `<div class="student-cell"><span class="mini-avatar">${htmlEscape(initials(letter.studentName))}</span><span><span class="student-name">${htmlEscape(letter.studentName)}</span><span class="student-id">${htmlEscape(letter.studentNumber)}</span></span></div>`;
+        if (mode === 'history') return `<tr><td>${student}</td><td>${htmlEscape(letter.course)}</td><td>${formatDate(letter.submitted)}</td><td>${statusPill(letter.status)}</td><td>${letter.comment ? htmlEscape(letter.comment) : '<span style="color:#8a948d">—</span>'}</td><td><button class="review-link" data-open="${htmlEscape(letter.id)}">Details</button></td></tr>`;
+        if (mode === 'all') return `<tr><td>${student}</td><td>${htmlEscape(letter.course)}</td><td>${dateRange(letter)}</td><td>${formatDate(letter.submitted)}</td><td>${statusPill(letter.status)}</td><td><button class="review-link" data-open="${htmlEscape(letter.id)}">${currentRole === 'dean' && letter.status === 'Pending' ? 'Review' : 'Details'}</button></td></tr>`;
+        return `<tr><td>${student}</td><td>${dateRange(letter)}</td><td>${formatDate(letter.submitted)}</td><td>${statusPill(letter.status)}</td><td><button class="review-link" data-open="${htmlEscape(letter.id)}">${currentRole === 'dean' && letter.status === 'Pending' ? 'Review' : 'Details'}</button></td></tr>`;
+      }).join('');
+      target.innerHTML = rows;
+      const emptyId = mode === 'history' ? 'history-empty' : mode === 'all' ? 'all-empty' : 'recent-empty';
+      document.getElementById(emptyId).hidden = items.length > 0;
+    }
+    function renderActivity() {
+      const items = visibleLetters().slice().sort((a,b) => b.submitted.localeCompare(a.submitted)).slice(0,3);
+      document.getElementById('activity-list').innerHTML = items.length ? items.map(letter => `<div class="activity-item"><div class="activity-dot">${letter.status === 'Approved' ? '✓' : letter.status === 'Pending' ? '…' : '!'}</div><div><div class="activity-text"><strong>${htmlEscape(letter.id)}</strong> · ${htmlEscape(letter.studentName)}<br>${htmlEscape(letter.status)}${letter.comment ? `: ${htmlEscape(letter.comment)}` : ''}</div><div class="activity-time">Submitted ${formatDate(letter.submitted)}</div></div></div>`).join('') : '<div class="empty-state">No recent activity.</div>';
+    }
+    function render() {
+      renderStats();
+      const items = visibleLetters().slice().sort((a,b) => b.submitted.localeCompare(a.submitted));
+      const dashboardItems = currentRole === 'dean' ? items.filter(item => item.status === 'Pending') : items;
+      renderRows('recent-rows', dashboardItems.slice(0,5), 'recent');
+      document.getElementById('nav-pending').textContent = currentRole === 'dean' ? letters.filter(item => item.status === 'Pending').length : items.filter(item => item.status === 'Pending').length;
+      renderRows('all-rows', items, 'all');
+      document.getElementById('all-count').textContent = `${items.length} letter${items.length === 1 ? '' : 's'} in this view`;
+      renderRows('history-rows', items, 'history');
+      document.getElementById('history-count').textContent = `${items.length} complete record${items.length === 1 ? '' : 's'}`;
+      renderActivity();
+      applyFilters();
+    }
+    function showScreen(name) {
+      if (name === 'submit' && currentRole !== 'student') return;
+      document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('active', screen.id === `screen-${name}`));
+      document.querySelectorAll('.nav button').forEach(button => button.classList.toggle('active', button.dataset.screen === name || (name === 'submit' && button.dataset.screen === 'letters')));
+      const titles = { dashboard:'Overview', letters:'Excuse letters', history:'Letter history', submit:'New submission' };
+      document.getElementById('crumb-title').textContent = titles[name] || 'Overview';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function applyFilters() {
+      const allSearch = (document.getElementById('search-letters').value || '').toLowerCase();
+      const allStatus = document.getElementById('status-filter').value;
+      const historySearch = (document.getElementById('history-search').value || '').toLowerCase();
+      const historyStatus = document.getElementById('history-filter').value;
+      const items = visibleLetters().slice().sort((a,b) => b.submitted.localeCompare(a.submitted));
+      const matches = (item, search, status) => (!search || `${item.studentName} ${item.studentNumber} ${item.course} ${item.professor}`.toLowerCase().includes(search)) && (status === 'all' || item.status === status);
+      renderRows('all-rows', items.filter(item => matches(item, allSearch, allStatus)), 'all');
+      renderRows('history-rows', items.filter(item => matches(item, historySearch, historyStatus)), 'history');
+    }
+    function showToast(message) {
+      const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show');
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+    function openLetter(id) {
+      const letter = visibleLetters().find(item => item.id === id); if (!letter) return;
+      currentLetterId = id;
+      document.getElementById('modal-title').textContent = letter.studentName;
+      document.getElementById('modal-subtitle').textContent = `${letter.id} · Submitted ${formatDate(letter.submitted)}`;
+      const evidenceItems = (letter.evidence || []).map(item => typeof item === 'string' ? { name: item } : item);
+      const evidence = evidenceItems.length ? evidenceItems.map(item => item.dataUrl
+        ? `<a href="${item.dataUrl}" target="_blank" rel="noopener" aria-label="Open image evidence ${htmlEscape(item.name)}"><img src="${item.dataUrl}" alt="Evidence: ${htmlEscape(item.name)}"><span>${htmlEscape(item.name)}</span></a>`
+        : `<span>${htmlEscape(item.name)}</span>`).join('') : '<span>No evidence attached</span>';
+      document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}`;
+      const actions = document.getElementById('modal-actions');
+      if (currentRole === 'dean' && letter.status === 'Pending') {
+        actions.innerHTML = `<div class="comment-field" style="margin:0;flex:1"><textarea id="decision-comment" placeholder="Optional comment for the student"></textarea></div><div class="action-right"><button class="danger" id="reject-letter">Disapprove</button><button class="approve" id="approve-letter">Approve</button></div>`;
+        document.getElementById('approve-letter').onclick = () => decideLetter('Approved');
+        document.getElementById('reject-letter').onclick = () => decideLetter('Disapproved');
+      } else {
+        actions.innerHTML = `<button class="secondary" id="modal-done">Close</button><span style="align-self:center;color:var(--muted);font-size:9px">${letter.status === 'Approved' ? 'Visible to assigned professor' : letter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span>`;
+        document.getElementById('modal-done').onclick = closeModal;
+      }
+      document.getElementById('review-modal').classList.add('open');
+    }
+    function decideLetter(status) {
+      if (currentRole !== 'dean' || !['Approved', 'Disapproved'].includes(status)) return;
+      const letter = letters.find(item => item.id === currentLetterId && item.status === 'Pending');
+      if (!letter) return;
+      letter.status = status;
+      letter.comment = (document.getElementById('decision-comment').value || '').trim();
+      saveLetters(); closeModal(); render();
+      showToast(`Letter ${letter.id} ${status.toLowerCase()}. Student ${status === 'Approved' ? 'and assigned professor' : ''} notified.`);
+    }
+    function closeModal() { document.getElementById('review-modal').classList.remove('open'); currentLetterId = null; }
+
+    document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', () => showScreen(button.dataset.screen)));
+    document.querySelectorAll('[data-go="history"]').forEach(button => button.addEventListener('click', () => showScreen('history')));
+    ['new-letter-top','new-letter-list','notice-new'].forEach(id => document.getElementById(id).addEventListener('click', () => { if (currentRole === 'student') showScreen('submit'); }));
+    document.getElementById('cancel-submit').addEventListener('click', () => showScreen('dashboard'));
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('review-modal').addEventListener('click', event => { if (event.target.id === 'review-modal') closeModal(); });
+    document.addEventListener('click', event => { const button = event.target.closest('[data-open]'); if (button) openLetter(button.dataset.open); });
+    document.getElementById('evidence').addEventListener('change', async event => {
+      const files = [...event.target.files];
+      event.target.value = '';
+      if (selectedEvidence.length + files.length > 3) { showToast('Attach up to 3 evidence files per letter.'); return; }
+      if (files.some(file => file.size > 8 * 1024 * 1024)) { showToast('Each evidence file must be smaller than 8 MB.'); return; }
+      try {
+        for (const file of files) {
+          if (file.type.startsWith('image/')) {
+            const bitmap = await createImageBitmap(file);
+            const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close();
+            selectedEvidence.push({ name: file.name, type: 'image/jpeg', dataUrl: canvas.toDataURL('image/jpeg', .78) });
+          } else {
+            selectedEvidence.push({ name: file.name, type: file.type || 'application/pdf' });
+          }
+        }
+        renderEvidencePreview();
+      } catch {
+        showToast('Could not read that image. Try a JPG or PNG file.');
+      }
+    });
+    document.getElementById('evidence-preview').addEventListener('click', event => {
+      const button = event.target.closest('[data-remove-evidence]');
+      if (!button) return;
+      selectedEvidence.splice(Number(button.dataset.removeEvidence), 1);
+      renderEvidencePreview();
+    });
+    ['search-letters','status-filter','history-search','history-filter'].forEach(id => document.getElementById(id).addEventListener('input', applyFilters));
+    document.getElementById('letter-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (currentRole !== 'student') { showToast('Only student accounts can submit excuse letters.'); return; }
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const from = data.get('dateFrom'), to = data.get('dateTo');
+      if (to < from) { showToast('The end date must be on or after the start date.'); return; }
+      const evidence = selectedEvidence;
+      const nextNum = String(420 + letters.length + 1).padStart(4, '0');
+      letters.unshift({ id: `UA-2026-${nextNum}`, studentName: data.get('studentName').trim(), studentNumber: data.get('studentNumber').trim(), program: data.get('program').trim(), email: data.get('email').trim(), course: data.get('course').trim(), professor: data.get('professor').trim(), dateFrom: from, dateTo: to, reason: data.get('reason').trim(), evidence, submitted: new Date().toISOString().slice(0,10), status: 'Pending', comment: '' });
+      try {
+        saveLetters();
+        form.reset(); selectedEvidence = []; renderEvidencePreview(); showScreen('letters'); showToast('Your letter was submitted to the Dean for review.');
+      } catch {
+        letters.shift();
+        showToast('Could not save this letter. Try fewer or smaller image files.');
+      }
+    });
+    initializeRole();
+
+    function renderEvidencePreview() {
+      document.getElementById('evidence-preview').innerHTML = selectedEvidence.map((item, index) => `<div class="evidence-item">${item.dataUrl ? `<img src="${item.dataUrl}" alt="Image preview: ${htmlEscape(item.name)}">` : '<span class="evidence-name">PDF document</span>'}<span class="evidence-name">${htmlEscape(item.name)}</span><button class="evidence-remove" type="button" data-remove-evidence="${index}" aria-label="Remove ${htmlEscape(item.name)}">×</button></div>`).join('');
+    }
+  </script>
+</body>
+</html>
