@@ -18,7 +18,15 @@ Open `http://localhost:8000`. Stop the server with `Ctrl+C`.
 - Dean/Admin: `/dean.html` locally, `/dean` on Vercel. Review requests and record decisions.
 - Professor: `/professor.html` locally, `/professor` on Vercel. View approved letters assigned to their classes.
 
-The pages show distinct workflows, but the current static prototype is not authentication. A user can change the role in the URL, and demo data is stored in browser `localStorage`. Do not use real student information until sign-in is connected to Supabase Auth and every role has been tested. Frontend page separation is not an authorization boundary.
+The login screen opens first. Demo accounts for this prototype are:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Student | `mika.student@udu.ph` | `UAstudent2026!` |
+| Dean/Admin | `amara.dean@udu.ph` | `UAdean2026!` |
+| Professor | `elena.prof@udu.ph` | `UAprof2026!` |
+
+These credentials are hard-coded in the public JavaScript and are only a preview gate, not secure authentication. A user can inspect the source or browser storage. Demo data is stored in browser `localStorage`. Do not use real student information until the login is replaced with Supabase Auth and authorization is enforced by the database policies.
 
 ## Database foundation
 

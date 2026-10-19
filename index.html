@@ -163,6 +163,44 @@
     .toast { position: fixed; right: 22px; bottom: 20px; z-index: 8; padding: 12px 16px; background: var(--forest-dark); color: white; border-radius: 5px; box-shadow: var(--shadow); font-size: 11px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; }
     .toast.show { opacity: 1; transform: translateY(0); }
     .mobile-menu { display: none; }
+    [hidden] { display: none !important; }
+    .login-screen { min-height: 100vh; display: grid; grid-template-columns: minmax(0,1fr) minmax(340px,480px); background: var(--paper); }
+    .login-aside { position: relative; display: flex; flex-direction: column; justify-content: space-between; min-height: 100vh; padding: 35px clamp(28px,6vw,88px) 29px; overflow: hidden; background: var(--forest-dark); color: white; }
+    .login-aside:after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: linear-gradient(to right,#c62432 0 31%,#e2b51c 31% 56%,#123c7a 56% 100%); }
+    .login-brand { display: flex; align-items: center; gap: 13px; }
+    .login-brand img { width: 49px; height: 49px; border-radius: 50%; background: white; }
+    .login-brand-name { font: 700 16px/1.2 Georgia,serif; }
+    .login-brand-sub { margin-top: 4px; color: #e3c95e; font-size: 9px; letter-spacing: 1.1px; text-transform: uppercase; }
+    .login-message { position: relative; z-index: 1; max-width: 580px; padding: 60px 0; }
+    .login-message .eyebrow { color: #e2b51c; }
+    .login-message h1 { max-width: 600px; font: 500 clamp(38px,5vw,68px)/1.06 Georgia,serif; }
+    .login-message p { max-width: 470px; color: #d2dced; font-size: 14px; line-height: 1.7; }
+    .login-footer { color: #b8c7df; font-size: 10px; }
+    .login-panel { display: flex; align-items: center; justify-content: center; padding: 30px; }
+    .login-card { width: min(100%,360px); }
+    .login-card h2 { margin: 0; font: 500 30px Georgia,serif; }
+    .login-card > p { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 9px 0 24px; }
+    .login-card .field { margin-bottom: 14px; }
+    .login-card .field label { font-size: 11px; }
+    .login-card .field input { padding: 12px; font-size: 12px; }
+    .login-submit { width: 100%; margin-top: 5px; padding: 12px; }
+    .login-error { min-height: 18px; margin: 11px 0 0; color: #a54836; font-size: 10px; }
+    .demo-access { margin-top: 21px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.6; }
+    .demo-access summary { color: var(--forest); font-size: 10px; font-weight: 700; cursor: pointer; }
+    .demo-accounts { display: grid; gap: 7px; margin-top: 9px; }
+    .demo-account { padding: 8px; border-radius: 4px; background: #f5f7fb; }
+    .demo-account strong { color: var(--ink); }
+    .demo-account code { font-size: 9px; }
+    @media (max-width:760px) {
+      .login-screen { grid-template-columns: 1fr; }
+      .login-aside { min-height: 0; padding: 18px 21px 15px; }
+      .login-brand img { width: 38px; height: 38px; }
+      .login-message { padding: 29px 0 24px; }
+      .login-message h1 { font-size: 35px; }
+      .login-message p { margin-bottom: 0; font-size: 12px; }
+      .login-footer { display: none; }
+      .login-panel { padding: 28px 21px 40px; }
+    }
     @media (max-width: 1050px) {
       .shell { grid-template-columns: 210px minmax(0,1fr); }
       .content { padding: 28px 24px 45px; }
@@ -210,7 +248,15 @@
   </style>
 </head>
 <body>
-  <div class="shell">
+  <section class="login-screen" id="login-screen">
+    <div class="login-aside">
+      <div class="login-brand"><img src="ua-logo.png" alt="University of the Assumption seal"><div><div class="login-brand-name">University of the Assumption</div><div class="login-brand-sub">Student Affairs · San Fernando, Pampanga</div></div></div>
+      <div class="login-message"><div class="eyebrow">Digital student services</div><h1>Welcome to your excuse letter desk.</h1><p>Sign in with your university account to submit, review, or access approved excuse letters.</p></div>
+      <div class="login-footer">Academic year 2026-2027 · University of the Assumption</div>
+    </div>
+    <div class="login-panel"><form class="login-card" id="login-form"><div class="eyebrow">Account access</div><h2>Sign in</h2><p id="login-description">Use the account assigned to your university role.</p><div class="field"><label for="login-email">University email</label><input id="login-email" name="email" type="email" autocomplete="username" required placeholder="name@udu.ph"></div><div class="field"><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required placeholder="Enter your password"></div><button class="primary login-submit" type="submit">Sign in</button><p class="login-error" id="login-error" role="alert"></p><details class="demo-access"><summary>Show demo account credentials</summary><div class="demo-accounts"><div class="demo-account"><strong>Student</strong><br><code>mika.student@udu.ph</code><br><code>UAstudent2026!</code></div><div class="demo-account"><strong>Dean / Admin</strong><br><code>amara.dean@udu.ph</code><br><code>UAdean2026!</code></div><div class="demo-account"><strong>Professor</strong><br><code>elena.prof@udu.ph</code><br><code>UAprof2026!</code></div></div></details></form></div>
+  </section>
+  <div class="shell" id="portal-shell" hidden>
     <aside class="sidebar">
       <div class="brand"><img class="brand-mark" src="ua-logo.png" alt="University of the Assumption seal"><div><div class="brand-name">University of the<br>Assumption</div><div class="brand-sub">Pampanga · Student Affairs</div></div></div>
       <div class="side-label">Workspace</div>
@@ -224,7 +270,7 @@
     <main>
       <header class="topbar">
         <div class="crumb">Student Affairs <span aria-hidden="true">/</span> <b id="crumb-title">Overview</b></div>
-        <div class="top-actions"><div class="user-chip"><div class="avatar" id="user-avatar">MS</div><div><div class="user-name" id="user-name">Mika Santos</div><div class="user-role" id="user-role">Student account</div></div></div></div>
+        <div class="top-actions"><div class="user-chip"><div class="avatar" id="user-avatar">MS</div><div><div class="user-name" id="user-name">Mika Santos</div><div class="user-role" id="user-role">Student account</div></div></div><button class="secondary" id="logout-button" type="button">Sign out</button></div>
       </header>
       <div class="content">
         <section class="screen active" id="screen-dashboard">
@@ -288,7 +334,13 @@
     let letters = loadLetters();
     const allowedRoles = ['student', 'dean', 'professor'];
     const requestedRole = new URLSearchParams(window.location.search).get('role');
-    let currentRole = allowedRoles.includes(requestedRole) ? requestedRole : 'student';
+    const intendedRole = allowedRoles.includes(requestedRole) ? requestedRole : null;
+    const demoAccounts = {
+      'mika.student@udu.ph': { password: 'UAstudent2026!', role: 'student' },
+      'amara.dean@udu.ph': { password: 'UAdean2026!', role: 'dean' },
+      'elena.prof@udu.ph': { password: 'UAprof2026!', role: 'professor' }
+    };
+    let currentRole = 'student';
     let currentLetterId = null;
     let toastTimer;
     let selectedEvidence = [];
@@ -334,6 +386,8 @@
       document.querySelector('[data-screen="history"]').hidden = role === 'professor';
       document.querySelectorAll('[data-student-only]').forEach(element => element.hidden = role !== 'student');
       render();
+      document.getElementById('login-screen').hidden = true;
+      document.getElementById('portal-shell').hidden = false;
     }
     function renderStats() {
       const items = visibleLetters();
@@ -486,7 +540,39 @@
         showToast('Could not save this letter. Try fewer or smaller image files.');
       }
     });
-    initializeRole();
+    document.getElementById('login-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const email = document.getElementById('login-email').value.trim().toLowerCase();
+      const password = document.getElementById('login-password').value;
+      const account = demoAccounts[email];
+      if (!account || account.password !== password) {
+        document.getElementById('login-error').textContent = 'Email or password is incorrect.';
+        return;
+      }
+      if (intendedRole && account.role !== intendedRole) {
+        document.getElementById('login-error').textContent = `This page is for the ${intendedRole === 'dean' ? 'Dean / Admin' : intendedRole} account. Sign in with that account.`;
+        return;
+      }
+      sessionStorage.setItem('ua-demo-session', JSON.stringify({ email, role: account.role }));
+      window.location.replace(`${account.role}.html`);
+    });
+    document.getElementById('logout-button').addEventListener('click', () => {
+      sessionStorage.removeItem('ua-demo-session');
+      window.location.replace('index.html');
+    });
+    document.getElementById('login-description').textContent = intendedRole
+      ? `Sign in with the account assigned to the ${intendedRole === 'dean' ? 'Dean / Admin' : intendedRole} portal.`
+      : 'Use the account assigned to your university role.';
+    let activeSession = null;
+    try { activeSession = JSON.parse(sessionStorage.getItem('ua-demo-session') || 'null'); } catch { activeSession = null; }
+    if (activeSession && allowedRoles.includes(activeSession.role) && (!intendedRole || activeSession.role === intendedRole)) {
+      currentRole = activeSession.role;
+      initializeRole();
+    } else {
+      if (activeSession) sessionStorage.removeItem('ua-demo-session');
+      document.getElementById('login-screen').hidden = false;
+      document.getElementById('portal-shell').hidden = true;
+    }
 
     function renderEvidencePreview() {
       document.getElementById('evidence-preview').innerHTML = selectedEvidence.map((item, index) => `<div class="evidence-item">${item.dataUrl ? `<img src="${item.dataUrl}" alt="Image preview: ${htmlEscape(item.name)}">` : '<span class="evidence-name">PDF document</span>'}<span class="evidence-name">${htmlEscape(item.name)}</span><button class="evidence-remove" type="button" data-remove-evidence="${index}" aria-label="Remove ${htmlEscape(item.name)}">×</button></div>`).join('');
