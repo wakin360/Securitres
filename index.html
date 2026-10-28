@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#08285f">
   <title>University of the Assumption | Excuse Letter Desk</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.0/build/qrcode.min.js" defer></script>
   <style>
     :root {
       color-scheme: light;
@@ -603,13 +604,41 @@
       }
       return matrix;
     }
-    function renderLetterQr(letter) {
+    async function renderLetterQr(letter) {
       const qrTarget = document.createElement('div');
       qrTarget.className = 'qr-box';
       const label = document.createElement('div');
       label.className = 'detail-label';
       label.style.marginBottom = '0';
       label.textContent = 'Verification QR';
+      qrTarget.appendChild(label);
+
+      if (window.QRCode && typeof window.QRCode.toDataURL === 'function') {
+        const img = document.createElement('img');
+        img.alt = `Verification QR for ${letter.id}`;
+        img.style.width = '170px';
+        img.style.height = '170px';
+        img.style.borderRadius = '8px';
+        img.style.border = '1px solid var(--line)';
+        img.style.background = '#ffffff';
+        img.style.padding = '8px';
+        try {
+          img.src = await window.QRCode.toDataURL(generateLetterQrPayload(letter), {
+            errorCorrectionLevel: 'M',
+            margin: 1,
+            width: 180,
+            color: {
+              dark: '#08285f',
+              light: '#ffffff'
+            }
+          });
+          qrTarget.appendChild(img);
+          return qrTarget;
+        } catch (error) {
+          console.warn('QR generation failed, using fallback matrix.', error);
+        }
+      }
+
       const matrix = generateQrMatrix(generateLetterQrPayload(letter), 21);
       const grid = document.createElement('div');
       grid.className = 'qr-grid';
@@ -621,11 +650,10 @@
           grid.appendChild(cell);
         });
       });
-      qrTarget.appendChild(label);
       qrTarget.appendChild(grid);
       return qrTarget;
     }
-    function openLetter(id) {
+    async function openLetter(id) {
       const letter = visibleLetters().find(item => item.id === id); if (!letter) return;
       currentLetterId = id;
       document.getElementById('modal-title').textContent = letter.studentName;
@@ -634,7 +662,7 @@
       const evidence = evidenceItems.length ? evidenceItems.map(item => item.dataUrl
         ? `<a href="${item.dataUrl}" target="_blank" rel="noopener" aria-label="Open image evidence ${htmlEscape(item.name)}"><img src="${item.dataUrl}" alt="Evidence: ${htmlEscape(item.name)}"><span>${htmlEscape(item.name)}</span></a>`
         : `<span>${htmlEscape(item.name)}</span>`).join('') : '<span>No evidence attached</span>';
-      const qrMarkup = renderLetterQr(letter);
+      const qrMarkup = await renderLetterQr(letter);
       document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Parent / guardian</div><div class="detail-value">${htmlEscape(letter.parentContact || 'Not provided')}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}<div style="margin-top:16px;display:flex;justify-content:center;">${qrMarkup.outerHTML}</div>`;
       const actions = document.getElementById('modal-actions');
       if (currentRole === 'dean' && letter.status === 'Pending') {
