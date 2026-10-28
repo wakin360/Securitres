@@ -154,6 +154,10 @@
     .detail-value { font-size: 11px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
     .detail-full { grid-column: 1/-1; }
     .comment-box { margin-top: 15px; padding: 12px; background: #f7f8f5; border-radius: 5px; font-size: 10px; line-height: 1.5; }
+    .qr-box { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; min-width: 170px; }
+    .qr-grid { display: grid; gap: 1px; padding: 6px; border-radius: 8px; background: #fff; border: 1px solid var(--line); }
+    .qr-cell { width: 5px; height: 5px; border-radius: 1px; background: #ffffff; }
+    .qr-cell.active { background: var(--forest-dark); }
     .modal-actions { display: flex; justify-content: space-between; gap: 8px; padding: 13px 22px; background: #fafbf9; border-top: 1px solid var(--line); }
     .action-right { display: flex; gap: 8px; }
     .danger { border: 1px solid #e4b1a5; background: white; color: #a54836; border-radius: 5px; padding: 9px 12px; font-size: 11px; font-weight: 700; }
@@ -351,6 +355,13 @@
     const NOTIFICATIONS_KEY = 'ua-notifications-v1';
     const PROFESSOR_ASSIGNMENTS_KEY = 'ua-professor-assignments-v1';
     const professorRoster = ['Prof. Elena Cruz','Prof. Mark Anthony Santos','Prof. Maria Reyes','Prof. Daniel Ramos','Prof. Jenny Flores'];
+    const professorEmails = {
+      'Prof. Elena Cruz': 'elena.prof@udu.ph',
+      'Prof. Mark Anthony Santos': 'mark.santos@udu.ph',
+      'Prof. Maria Reyes': 'maria.reyes@udu.ph',
+      'Prof. Daniel Ramos': 'daniel.ramos@udu.ph',
+      'Prof. Jenny Flores': 'jenny.flores@udu.ph'
+    };
     const courseCatalog = ['Data Structures','Discrete Mathematics','Cost Accounting','General Psychology','Introduction to Computing','Systems Analysis'];
     const starterLetters = [
       { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
@@ -365,11 +376,12 @@
       { professor: 'Prof. Jenny Flores', course: 'General Psychology' }
     ];
     const starterNotifications = [
-      { id: 'n1', user: 'Prof. Elena Cruz', role: 'professor', message: 'Approved excuse letter for Mika Santos is ready to review.', createdAt: '2026-10-17' }
+      { id: 'n1', user: 'Prof. Elena Cruz', role: 'professor', email: 'elena.prof@udu.ph', message: 'Approved excuse letter for Mika Santos is ready to review.', createdAt: '2026-10-17' }
     ];
     let letters = loadLetters();
     let notifications = loadNotifications();
     let professorAssignments = loadProfessorAssignments();
+    let currentUserEmail = '';
     const allowedRoles = ['student', 'dean', 'professor'];
     const requestedRole = new URLSearchParams(window.location.search).get('role');
     const intendedRole = allowedRoles.includes(requestedRole) ? requestedRole : null;
@@ -405,11 +417,18 @@
     }
     function saveProfessorAssignments() { localStorage.setItem(PROFESSOR_ASSIGNMENTS_KEY, JSON.stringify(professorAssignments)); }
     function currentUserProfile() {
-      const profile = { student: { name: 'Mika Santos', roleLabel: 'Student account' }, dean: { name: 'Dr. Amara Villanueva', roleLabel: 'Dean / Admin' }, professor: { name: 'Prof. Elena Cruz', roleLabel: 'Professor account' } };
+      const profile = { student: { name: 'Mika Santos', roleLabel: 'Student account', email: 'mika.student@udu.ph' }, dean: { name: 'Dr. Amara Villanueva', roleLabel: 'Dean / Admin', email: 'amara.dean@udu.ph' }, professor: { name: 'Prof. Elena Cruz', roleLabel: 'Professor account', email: 'elena.prof@udu.ph' } };
       return profile[currentRole] || profile.student;
     }
-    function addNotification(user, message) {
-      notifications.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : `n-${Date.now()}`, user, role: 'professor', message, createdAt: new Date().toISOString().slice(0,10) });
+    function addNotification(user, message, recipientEmail = null) {
+      notifications.unshift({
+        id: crypto.randomUUID ? crypto.randomUUID() : `n-${Date.now()}`,
+        user,
+        role: 'professor',
+        message,
+        email: recipientEmail || currentUserEmail || currentUserProfile().email,
+        createdAt: new Date().toISOString().slice(0,10)
+      });
       saveNotifications();
     }
     function formatDate(value) {
@@ -476,8 +495,8 @@
     }
     function renderActivity() {
       if (currentRole === 'professor') {
-        const roleNotifications = notifications.filter(item => item.user === currentUserProfile().name);
-        document.getElementById('activity-list').innerHTML = roleNotifications.length ? `<div class="notification-list">${roleNotifications.slice(0,4).map(item => `<div class="notification-item"><strong>${htmlEscape(item.message)}</strong><small>${formatDate(item.createdAt)}</small></div>`).join('')}</div>` : '<div class="empty-state">No notifications yet.</div>';
+        const roleNotifications = notifications.filter(item => item.email === currentUserEmail || item.user === currentUserProfile().name);
+        document.getElementById('activity-list').innerHTML = roleNotifications.length ? `<div class="notification-list">${roleNotifications.slice(0,4).map(item => `<div class="notification-item"><strong>${htmlEscape(item.message)}</strong><small>${htmlEscape(item.email || 'Email not set')} · ${formatDate(item.createdAt)}</small></div>`).join('')}</div>` : '<div class="empty-state">No notifications yet.</div>';
         return;
       }
       if (currentRole === 'dean') {
@@ -545,6 +564,67 @@
       const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show');
       clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
     }
+    function generateLetterQrPayload(letter) {
+      return JSON.stringify({
+        id: letter.id,
+        studentName: letter.studentName,
+        studentNumber: letter.studentNumber,
+        course: letter.course,
+        professor: letter.professor,
+        status: letter.status,
+        submitted: letter.submitted
+      });
+    }
+    function createFinderPattern(matrix, startRow, startCol) {
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          const inBorder = row === 0 || row === 6 || col === 0 || col === 6;
+          const inCenter = row >= 2 && row <= 4 && col >= 2 && col <= 4;
+          matrix[startRow + row][startCol + col] = inBorder || inCenter;
+        }
+      }
+    }
+    function generateQrMatrix(text, size = 21) {
+      const matrix = Array.from({ length: size }, () => Array(size).fill(false));
+      createFinderPattern(matrix, 0, 0);
+      createFinderPattern(matrix, 0, size - 7);
+      createFinderPattern(matrix, size - 7, 0);
+      let seed = 0;
+      for (let index = 0; index < text.length; index++) {
+        seed = (seed * 131 + text.charCodeAt(index)) >>> 0;
+      }
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const inFinder = (row < 7 && col < 7) || (row < 7 && col >= size - 7) || (row >= size - 7 && col < 7);
+          if (inFinder) continue;
+          const value = (seed + row * 97 + col * 131 + row * col) % 11;
+          matrix[row][col] = value % 2 === 0;
+        }
+      }
+      return matrix;
+    }
+    function renderLetterQr(letter) {
+      const qrTarget = document.createElement('div');
+      qrTarget.className = 'qr-box';
+      const label = document.createElement('div');
+      label.className = 'detail-label';
+      label.style.marginBottom = '0';
+      label.textContent = 'Verification QR';
+      const matrix = generateQrMatrix(generateLetterQrPayload(letter), 21);
+      const grid = document.createElement('div');
+      grid.className = 'qr-grid';
+      grid.style.gridTemplateColumns = `repeat(${matrix.length}, 5px)`;
+      matrix.forEach(row => {
+        row.forEach(value => {
+          const cell = document.createElement('span');
+          cell.className = `qr-cell${value ? ' active' : ''}`;
+          grid.appendChild(cell);
+        });
+      });
+      qrTarget.appendChild(label);
+      qrTarget.appendChild(grid);
+      return qrTarget;
+    }
     function openLetter(id) {
       const letter = visibleLetters().find(item => item.id === id); if (!letter) return;
       currentLetterId = id;
@@ -554,7 +634,8 @@
       const evidence = evidenceItems.length ? evidenceItems.map(item => item.dataUrl
         ? `<a href="${item.dataUrl}" target="_blank" rel="noopener" aria-label="Open image evidence ${htmlEscape(item.name)}"><img src="${item.dataUrl}" alt="Evidence: ${htmlEscape(item.name)}"><span>${htmlEscape(item.name)}</span></a>`
         : `<span>${htmlEscape(item.name)}</span>`).join('') : '<span>No evidence attached</span>';
-      document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Parent / guardian</div><div class="detail-value">${htmlEscape(letter.parentContact || 'Not provided')}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}`;
+      const qrMarkup = renderLetterQr(letter);
+      document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Parent / guardian</div><div class="detail-value">${htmlEscape(letter.parentContact || 'Not provided')}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}<div style="margin-top:16px;display:flex;justify-content:center;">${qrMarkup.outerHTML}</div>`;
       const actions = document.getElementById('modal-actions');
       if (currentRole === 'dean' && letter.status === 'Pending') {
         actions.innerHTML = `<div class="comment-field" style="margin:0;flex:1"><textarea id="decision-comment" placeholder="Optional comment for the student"></textarea></div><div class="action-right"><button class="danger" id="reject-letter">Disapprove</button><button class="approve" id="approve-letter">Approve</button></div>`;
@@ -572,11 +653,16 @@
       if (!letter) return;
       letter.status = status;
       letter.comment = (document.getElementById('decision-comment').value || '').trim();
+      const professorAddress = professorEmails[letter.professor] || currentUserEmail || 'assigned.professor@udu.ph';
+      const studentAddress = letter.email || 'student@udu.ph';
       if (status === 'Approved') {
-        addNotification(letter.professor, `Approved excuse letter ${letter.id} is ready for ${letter.studentName}.`);
+        addNotification(letter.professor, `Approved excuse letter ${letter.id} is ready for ${letter.studentName}.`, professorAddress);
+        addNotification(letter.studentName, `Your excuse letter ${letter.id} was approved by the Dean.`, studentAddress);
+      } else {
+        addNotification(letter.studentName, `Your excuse letter ${letter.id} was disapproved. Please review the Dean's notes.`, studentAddress);
       }
       saveLetters(); closeModal(); render();
-      showToast(`Letter ${letter.id} ${status.toLowerCase()}. Student ${status === 'Approved' ? 'and assigned professor' : ''} notified.`);
+      showToast(`Letter ${letter.id} ${status.toLowerCase()}. Email notifications were prepared for the student and professor.`);
     }
     function closeModal() { document.getElementById('review-modal').classList.remove('open'); currentLetterId = null; }
 
@@ -664,6 +750,7 @@
         return;
       }
       sessionStorage.setItem('ua-demo-session', JSON.stringify({ email, role: account.role }));
+      currentUserEmail = email;
       window.location.replace(`${account.role}.html`);
     });
     document.getElementById('logout-button').addEventListener('click', () => {
@@ -677,6 +764,7 @@
     try { activeSession = JSON.parse(sessionStorage.getItem('ua-demo-session') || 'null'); } catch { activeSession = null; }
     if (activeSession && allowedRoles.includes(activeSession.role) && (!intendedRole || activeSession.role === intendedRole)) {
       currentRole = activeSession.role;
+      currentUserEmail = activeSession.email || currentUserProfile().email;
       initializeRole();
     } else {
       if (activeSession) sessionStorage.removeItem('ua-demo-session');
