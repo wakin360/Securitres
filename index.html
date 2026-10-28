@@ -162,6 +162,16 @@
     .comment-field textarea { width: 100%; min-height: 69px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; resize: vertical; }
     .toast { position: fixed; right: 22px; bottom: 20px; z-index: 8; padding: 12px 16px; background: var(--forest-dark); color: white; border-radius: 5px; box-shadow: var(--shadow); font-size: 11px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; }
     .toast.show { opacity: 1; transform: translateY(0); }
+    .assignment-panel { margin-top: 15px; }
+    .assignment-list { display: grid; gap: 8px; padding: 0 17px 17px; }
+    .assignment-item { display: flex; justify-content: space-between; gap: 10px; align-items: center; font-size: 10px; padding: 8px 10px; border-radius: 5px; background: #f8f9f6; border: 1px solid var(--line); }
+    .assignment-item small { display: block; color: var(--muted); margin-top: 2px; }
+    .assignment-form { display: grid; gap: 8px; padding: 0 17px 17px; }
+    .assignment-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .assignment-form select, .assignment-form button { font-size: 10px; }
+    .notification-list { display: grid; gap: 8px; padding: 0 17px 17px; }
+    .notification-item { padding: 9px 10px; border: 1px solid var(--line); border-left: 3px solid var(--forest); background: #f8faf8; border-radius: 5px; font-size: 10px; line-height: 1.5; }
+    .notification-item small { display: block; color: var(--muted); margin-top: 3px; }
     .mobile-menu { display: none; }
     [hidden] { display: none !important; }
     .login-screen { min-height: 100vh; display: grid; grid-template-columns: minmax(0,1fr) minmax(340px,480px); background: var(--paper); }
@@ -284,6 +294,17 @@
             <aside class="right-col">
               <section class="notice"><div class="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p><button class="secondary" id="notice-new">Start a letter &nbsp; →</button></section>
               <section class="panel"><div class="panel-head"><div><div class="panel-title">Latest activity</div><div class="panel-kicker">Updates from the letter desk</div></div></div><div class="activity" id="activity-list"></div></section>
+              <section class="panel assignment-panel" id="admin-assignments-panel" hidden>
+                <div class="panel-head"><div><div class="panel-title">Professor assignments</div><div class="panel-kicker">Manage professor-to-course pairing</div></div></div>
+                <div class="assignment-list" id="assignment-list"></div>
+                <div class="assignment-form">
+                  <div class="row">
+                    <div class="field"><label for="assignment-professor">Professor</label><select id="assignment-professor"></select></div>
+                    <div class="field"><label for="assignment-course">Course</label><select id="assignment-course"></select></div>
+                  </div>
+                  <button class="primary" id="save-assignment" type="button">Assign professor</button>
+                </div>
+              </section>
             </aside>
           </div>
         </section>
@@ -307,9 +328,11 @@
               </div></div>
               <div class="form-section"><h2 class="section-title">Class and absence</h2><div class="form-grid">
                 <div class="field"><label for="course">Course / subject *</label><input id="course" name="course" required placeholder="e.g. Introduction to Computing"></div>
-                <div class="field"><label for="professor">Assigned professor *</label><input id="professor" name="professor" required placeholder="Professor's name"></div>
+                <div class="field"><label for="professor">Assigned professor *</label><input id="professor" name="professor" list="professor-options" required placeholder="Type professor name"></div>
+                <datalist id="professor-options"></datalist>
                 <div class="field"><label for="date-from">Absence from *</label><input id="date-from" name="dateFrom" type="date" required></div>
                 <div class="field"><label for="date-to">Absence to *</label><input id="date-to" name="dateTo" type="date" required></div>
+                <div class="field"><label for="parent-contact">Parent/guardian contact number *</label><input id="parent-contact" name="parentContact" required placeholder="e.g. 0917-123-4567"></div>
                 <div class="field full"><label for="reason">Reason for absence *</label><textarea id="reason" name="reason" required placeholder="Briefly explain the reason for your absence"></textarea></div>
               </div></div>
               <div class="form-section"><h2 class="section-title">Supporting evidence</h2><div class="field"><label for="evidence">Attach supporting pictures or documents</label><div class="upload">Choose up to 3 images or PDFs, max 8 MB each<input id="evidence" name="evidence" type="file" accept="image/*,.pdf" multiple></div><div class="field-hint">Images are saved in this browser and visible to reviewers. PDFs show their filename only in this demo.</div><div class="evidence-preview" id="evidence-preview" aria-live="polite"></div></div></div>
@@ -325,13 +348,28 @@
   <div class="toast" id="toast" role="status"></div>
   <script>
     const STORAGE_KEY = 'ua-excuse-letters-v1';
+    const NOTIFICATIONS_KEY = 'ua-notifications-v1';
+    const PROFESSOR_ASSIGNMENTS_KEY = 'ua-professor-assignments-v1';
+    const professorRoster = ['Prof. Elena Cruz','Prof. Mark Anthony Santos','Prof. Maria Reyes','Prof. Daniel Ramos','Prof. Jenny Flores'];
+    const courseCatalog = ['Data Structures','Discrete Mathematics','Cost Accounting','General Psychology','Introduction to Computing','Systems Analysis'];
     const starterLetters = [
-      { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
-      { id: 'UA-2026-0412', studentName: 'Jonah Reyes', studentNumber: '2023-00719', program: 'BS Accountancy, 3rd year', email: 'jonah.reyes@ua.edu', course: 'Cost Accounting', professor: 'Prof. Marco Dizon', dateFrom: '2026-10-12', dateTo: '2026-10-12', reason: 'Family emergency required me to travel home.', evidence: ['supporting-note.jpg'], submitted: '2026-10-13', status: 'Approved', comment: 'Approved. Please coordinate any missed assessment with your professor.' },
-      { id: 'UA-2026-0398', studentName: 'Aira Villanueva', studentNumber: '2025-02103', program: 'BS Psychology, 1st year', email: 'aira.v@ua.edu', course: 'General Psychology', professor: 'Prof. Nina Flores', dateFrom: '2026-10-08', dateTo: '2026-10-09', reason: 'I was recovering from a fever and was advised to rest.', evidence: ['medical-certificate.pdf'], submitted: '2026-10-10', status: 'Disapproved', comment: 'Please attach a readable copy of the supporting document and resubmit.' },
-      { id: 'UA-2026-0381', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Discrete Mathematics', professor: 'Prof. Elena Cruz', dateFrom: '2026-10-02', dateTo: '2026-10-02', reason: 'I had a scheduled medical appointment.', evidence: ['appointment-slip.png'], submitted: '2026-10-03', status: 'Approved', comment: 'Approved. Thank you for providing supporting evidence.' }
+      { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
+      { id: 'UA-2026-0412', studentName: 'Jonah Reyes', studentNumber: '2023-00719', program: 'BS Accountancy, 3rd year', email: 'jonah.reyes@ua.edu', course: 'Cost Accounting', professor: 'Prof. Mark Anthony Santos', parentContact: '0922-654-1122', dateFrom: '2026-10-12', dateTo: '2026-10-12', reason: 'Family emergency required me to travel home.', evidence: ['supporting-note.jpg'], submitted: '2026-10-13', status: 'Approved', comment: 'Approved. Please coordinate any missed assessment with your professor.' },
+      { id: 'UA-2026-0398', studentName: 'Aira Villanueva', studentNumber: '2025-02103', program: 'BS Psychology, 1st year', email: 'aira.v@ua.edu', course: 'General Psychology', professor: 'Prof. Jenny Flores', parentContact: '0933-889-1020', dateFrom: '2026-10-08', dateTo: '2026-10-09', reason: 'I was recovering from a fever and was advised to rest.', evidence: ['medical-certificate.pdf'], submitted: '2026-10-10', status: 'Disapproved', comment: 'Please attach a readable copy of the supporting document and resubmit.' },
+      { id: 'UA-2026-0381', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Discrete Mathematics', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-02', dateTo: '2026-10-02', reason: 'I had a scheduled medical appointment.', evidence: ['appointment-slip.png'], submitted: '2026-10-03', status: 'Approved', comment: 'Approved. Thank you for providing supporting evidence.' }
+    ];
+    const starterAssignments = [
+      { professor: 'Prof. Elena Cruz', course: 'Data Structures' },
+      { professor: 'Prof. Elena Cruz', course: 'Discrete Mathematics' },
+      { professor: 'Prof. Mark Anthony Santos', course: 'Cost Accounting' },
+      { professor: 'Prof. Jenny Flores', course: 'General Psychology' }
+    ];
+    const starterNotifications = [
+      { id: 'n1', user: 'Prof. Elena Cruz', role: 'professor', message: 'Approved excuse letter for Mika Santos is ready to review.', createdAt: '2026-10-17' }
     ];
     let letters = loadLetters();
+    let notifications = loadNotifications();
+    let professorAssignments = loadProfessorAssignments();
     const allowedRoles = ['student', 'dean', 'professor'];
     const requestedRole = new URLSearchParams(window.location.search).get('role');
     const intendedRole = allowedRoles.includes(requestedRole) ? requestedRole : null;
@@ -352,6 +390,28 @@
       } catch { return starterLetters; }
     }
     function saveLetters() { localStorage.setItem(STORAGE_KEY, JSON.stringify(letters)); }
+    function loadNotifications() {
+      try {
+        const saved = localStorage.getItem(NOTIFICATIONS_KEY);
+        return saved ? JSON.parse(saved) : starterNotifications;
+      } catch { return starterNotifications; }
+    }
+    function saveNotifications() { localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications)); }
+    function loadProfessorAssignments() {
+      try {
+        const saved = localStorage.getItem(PROFESSOR_ASSIGNMENTS_KEY);
+        return saved ? JSON.parse(saved) : starterAssignments;
+      } catch { return starterAssignments; }
+    }
+    function saveProfessorAssignments() { localStorage.setItem(PROFESSOR_ASSIGNMENTS_KEY, JSON.stringify(professorAssignments)); }
+    function currentUserProfile() {
+      const profile = { student: { name: 'Mika Santos', roleLabel: 'Student account' }, dean: { name: 'Dr. Amara Villanueva', roleLabel: 'Dean / Admin' }, professor: { name: 'Prof. Elena Cruz', roleLabel: 'Professor account' } };
+      return profile[currentRole] || profile.student;
+    }
+    function addNotification(user, message) {
+      notifications.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : `n-${Date.now()}`, user, role: 'professor', message, createdAt: new Date().toISOString().slice(0,10) });
+      saveNotifications();
+    }
     function formatDate(value) {
       if (!value) return '—';
       return new Date(value + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -362,7 +422,7 @@
     function initials(name) { return (name || '?').split(/\s+/).slice(0,2).map(part => part[0]).join('').toUpperCase(); }
     function visibleLetters() {
       if (currentRole === 'student') return letters.filter(letter => letter.studentName === 'Mika Santos');
-      if (currentRole === 'professor') return letters.filter(letter => letter.status === 'Approved' && letter.professor === 'Prof. Elena Cruz');
+      if (currentRole === 'professor') return letters.filter(letter => letter.status === 'Approved' && letter.professor === currentUserProfile().name);
       return letters;
     }
     function statusPill(status) { return `<span class="status ${status.toLowerCase()}">${status}</span>`; }
@@ -385,6 +445,8 @@
       document.querySelector('[data-go="history"]').hidden = role === 'professor';
       document.querySelector('[data-screen="history"]').hidden = role === 'professor';
       document.querySelectorAll('[data-student-only]').forEach(element => element.hidden = role !== 'student');
+      document.getElementById('admin-assignments-panel').hidden = role !== 'dean';
+      renderProfessorAssignmentOptions();
       render();
       document.getElementById('login-screen').hidden = true;
       document.getElementById('portal-shell').hidden = false;
@@ -413,15 +475,47 @@
       document.getElementById(emptyId).hidden = items.length > 0;
     }
     function renderActivity() {
+      if (currentRole === 'professor') {
+        const roleNotifications = notifications.filter(item => item.user === currentUserProfile().name);
+        document.getElementById('activity-list').innerHTML = roleNotifications.length ? `<div class="notification-list">${roleNotifications.slice(0,4).map(item => `<div class="notification-item"><strong>${htmlEscape(item.message)}</strong><small>${formatDate(item.createdAt)}</small></div>`).join('')}</div>` : '<div class="empty-state">No notifications yet.</div>';
+        return;
+      }
+      if (currentRole === 'dean') {
+        document.getElementById('activity-list').innerHTML = `<div class="notification-list">${notifications.slice(0,3).map(item => `<div class="notification-item"><strong>${htmlEscape(item.message)}</strong><small>${htmlEscape(item.user)} · ${formatDate(item.createdAt)}</small></div>`).join('')}</div>`;
+        return;
+      }
       const items = visibleLetters().slice().sort((a,b) => b.submitted.localeCompare(a.submitted)).slice(0,3);
       document.getElementById('activity-list').innerHTML = items.length ? items.map(letter => `<div class="activity-item"><div class="activity-dot">${letter.status === 'Approved' ? '✓' : letter.status === 'Pending' ? '…' : '!'}</div><div><div class="activity-text"><strong>${htmlEscape(letter.id)}</strong> · ${htmlEscape(letter.studentName)}<br>${htmlEscape(letter.status)}${letter.comment ? `: ${htmlEscape(letter.comment)}` : ''}</div><div class="activity-time">Submitted ${formatDate(letter.submitted)}</div></div></div>`).join('') : '<div class="empty-state">No recent activity.</div>';
+    }
+    function renderProfessorAssignmentOptions() {
+      const professorSelect = document.getElementById('assignment-professor');
+      const courseSelect = document.getElementById('assignment-course');
+      const professorDataList = document.getElementById('professor-options');
+      if (!professorSelect || !courseSelect) return;
+      professorSelect.innerHTML = professorRoster.map(name => `<option value="${htmlEscape(name)}">${htmlEscape(name)}</option>`).join('');
+      courseSelect.innerHTML = courseCatalog.map(course => `<option value="${htmlEscape(course)}">${htmlEscape(course)}</option>`).join('');
+      if (professorDataList) {
+        professorDataList.innerHTML = professorRoster.map(name => `<option value="${htmlEscape(name)}"></option>`).join('');
+      }
+      if (!professorAssignments.length) {
+        professorAssignments = [...starterAssignments];
+      }
+      const list = document.getElementById('assignment-list');
+      if (list) {
+        list.innerHTML = professorAssignments.map(item => `<div class="assignment-item"><div><strong>${htmlEscape(item.professor)}</strong><small>${htmlEscape(item.course)}</small></div><span class="status approved">Assigned</span></div>`).join('');
+      }
     }
     function render() {
       renderStats();
       const items = visibleLetters().slice().sort((a,b) => b.submitted.localeCompare(a.submitted));
       const dashboardItems = currentRole === 'dean' ? items.filter(item => item.status === 'Pending') : items;
       renderRows('recent-rows', dashboardItems.slice(0,5), 'recent');
-      document.getElementById('nav-pending').textContent = currentRole === 'dean' ? letters.filter(item => item.status === 'Pending').length : items.filter(item => item.status === 'Pending').length;
+      const navCount = currentRole === 'dean'
+        ? letters.filter(item => item.status === 'Pending').length
+        : currentRole === 'professor'
+          ? visibleLetters().length
+          : items.filter(item => item.status === 'Pending').length;
+      document.getElementById('nav-pending').textContent = navCount;
       renderRows('all-rows', items, 'all');
       document.getElementById('all-count').textContent = `${items.length} letter${items.length === 1 ? '' : 's'} in this view`;
       renderRows('history-rows', items, 'history');
@@ -460,7 +554,7 @@
       const evidence = evidenceItems.length ? evidenceItems.map(item => item.dataUrl
         ? `<a href="${item.dataUrl}" target="_blank" rel="noopener" aria-label="Open image evidence ${htmlEscape(item.name)}"><img src="${item.dataUrl}" alt="Evidence: ${htmlEscape(item.name)}"><span>${htmlEscape(item.name)}</span></a>`
         : `<span>${htmlEscape(item.name)}</span>`).join('') : '<span>No evidence attached</span>';
-      document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}`;
+      document.getElementById('modal-content').innerHTML = `<div class="detail-grid"><div><div class="detail-label">Student number</div><div class="detail-value">${htmlEscape(letter.studentNumber)}</div></div><div><div class="detail-label">Program / year</div><div class="detail-value">${htmlEscape(letter.program)}</div></div><div><div class="detail-label">School email</div><div class="detail-value">${htmlEscape(letter.email)}</div></div><div><div class="detail-label">Parent / guardian</div><div class="detail-value">${htmlEscape(letter.parentContact || 'Not provided')}</div></div><div><div class="detail-label">Status</div><div class="detail-value">${statusPill(letter.status)}</div></div><div><div class="detail-label">Course</div><div class="detail-value">${htmlEscape(letter.course)}</div></div><div><div class="detail-label">Assigned professor</div><div class="detail-value">${htmlEscape(letter.professor)}</div></div><div><div class="detail-label">Absence dates</div><div class="detail-value">${dateRange(letter)}</div></div><div><div class="detail-label">Evidence</div><div class="detail-value"><div class="review-evidence">${evidence}</div></div></div><div class="detail-full"><div class="detail-label">Reason</div><div class="detail-value">${htmlEscape(letter.reason)}</div></div></div>${letter.comment ? `<div class="comment-box"><strong>Dean’s comment</strong><br>${htmlEscape(letter.comment)}</div>` : ''}`;
       const actions = document.getElementById('modal-actions');
       if (currentRole === 'dean' && letter.status === 'Pending') {
         actions.innerHTML = `<div class="comment-field" style="margin:0;flex:1"><textarea id="decision-comment" placeholder="Optional comment for the student"></textarea></div><div class="action-right"><button class="danger" id="reject-letter">Disapprove</button><button class="approve" id="approve-letter">Approve</button></div>`;
@@ -478,6 +572,9 @@
       if (!letter) return;
       letter.status = status;
       letter.comment = (document.getElementById('decision-comment').value || '').trim();
+      if (status === 'Approved') {
+        addNotification(letter.professor, `Approved excuse letter ${letter.id} is ready for ${letter.studentName}.`);
+      }
       saveLetters(); closeModal(); render();
       showToast(`Letter ${letter.id} ${status.toLowerCase()}. Student ${status === 'Approved' ? 'and assigned professor' : ''} notified.`);
     }
@@ -487,6 +584,17 @@
     document.querySelectorAll('[data-go="history"]').forEach(button => button.addEventListener('click', () => showScreen('history')));
     ['new-letter-top','new-letter-list','notice-new'].forEach(id => document.getElementById(id).addEventListener('click', () => { if (currentRole === 'student') showScreen('submit'); }));
     document.getElementById('cancel-submit').addEventListener('click', () => showScreen('dashboard'));
+    document.getElementById('save-assignment').addEventListener('click', () => {
+      const professor = document.getElementById('assignment-professor').value;
+      const course = document.getElementById('assignment-course').value;
+      if (!professor || !course) return;
+      if (!professorAssignments.some(item => item.professor === professor && item.course === course)) {
+        professorAssignments.unshift({ professor, course });
+        saveProfessorAssignments();
+        renderProfessorAssignmentOptions();
+        showToast(`${professor} assigned to ${course}.`);
+      }
+    });
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('review-modal').addEventListener('click', event => { if (event.target.id === 'review-modal') closeModal(); });
     document.addEventListener('click', event => { const button = event.target.closest('[data-open]'); if (button) openLetter(button.dataset.open); });
@@ -531,7 +639,9 @@
       if (to < from) { showToast('The end date must be on or after the start date.'); return; }
       const evidence = selectedEvidence;
       const nextNum = String(420 + letters.length + 1).padStart(4, '0');
-      letters.unshift({ id: `UA-2026-${nextNum}`, studentName: data.get('studentName').trim(), studentNumber: data.get('studentNumber').trim(), program: data.get('program').trim(), email: data.get('email').trim(), course: data.get('course').trim(), professor: data.get('professor').trim(), dateFrom: from, dateTo: to, reason: data.get('reason').trim(), evidence, submitted: new Date().toISOString().slice(0,10), status: 'Pending', comment: '' });
+      const professorName = data.get('professor').trim();
+      const parentContact = data.get('parentContact').trim();
+      letters.unshift({ id: `UA-2026-${nextNum}`, studentName: data.get('studentName').trim(), studentNumber: data.get('studentNumber').trim(), program: data.get('program').trim(), email: data.get('email').trim(), course: data.get('course').trim(), professor: professorName, parentContact, dateFrom: from, dateTo: to, reason: data.get('reason').trim(), evidence, submitted: new Date().toISOString().slice(0,10), status: 'Pending', comment: '' });
       try {
         saveLetters();
         form.reset(); selectedEvidence = []; renderEvidencePreview(); showScreen('letters'); showToast('Your letter was submitted to the Dean for review.');
