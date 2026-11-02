@@ -84,6 +84,16 @@ tbody tr:hover { background: #fbfcfa; }
 .review-link { color: var(--forest); border: 0; background: transparent; font-size: 10px; font-weight: 700; padding: 5px; }
 .review-link:hover { text-decoration: underline; }
 .empty-state { text-align: center; padding: 38px 15px; color: var(--muted); font-size: 12px; }
+.student-reason { max-width: 260px; white-space: normal; line-height: 1.45; }
+.student-data-error { margin: 12px 17px; color: #a54836; font-size: 10px; line-height: 1.5; }
+.student-detail-message { color: var(--muted); font-size: 12px; }
+.status-history { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 15px; }
+.status-history h3 { margin: 0 0 10px; font: 600 15px Georgia, serif; }
+.status-history > p { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.status-history ol { margin: 0; padding-left: 18px; }
+.status-history li { padding: 5px 0 8px; font-size: 10px; }
+.status-history time { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.status-history li p { margin: 5px 0 0; line-height: 1.5; }
 .right-col { display: grid; gap: 15px; }
 .notice { padding: 17px; background: #eff5ef; border: 1px solid #dce8de; border-radius: 7px; }
 .notice-title { color: var(--forest); font: 600 15px Georgia, serif; }
@@ -120,6 +130,9 @@ tbody tr:hover { background: #fbfcfa; }
 .evidence-item img { display: block; width: 100%; height: 62px; object-fit: cover; }
 .evidence-name { display: block; overflow: hidden; padding: 4px; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .field-hint { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.form-account { margin: 0 0 5px; font-size: 12px; font-weight: 700; }
+.form-panel > .student-data-error { margin: 12px 0; }
+.form-grid .student-data-error { margin: 0; }
 .evidence-remove { position: absolute; top: 3px; right: 3px; width: 19px; height: 19px; border: 0; border-radius: 50%; background: rgba(8,40,95,.9); color: white; font-size: 13px; line-height: 1; }
 .review-evidence { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
 .review-evidence a { display: block; width: 96px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; color: var(--forest); text-decoration: none; }

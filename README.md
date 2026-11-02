@@ -26,11 +26,11 @@ npm run preview
 - Dean/Admin: `/dean.html` locally, `/dean` on Vercel. Review requests and record decisions.
 - Professor: `/professor.html` locally, `/professor` on Vercel. View approved letters assigned to their classes.
 
-The role pages are compatibility redirects into the React application. They do not select a role or grant access. The current dashboards still use local sample data and are not connected Student, Dean, or Professor workflows. Letter, notification, assignment, and evidence-demo data remains in browser `localStorage`. Do not use real student information.
+The role pages are compatibility redirects into the React application. They do not select a role or grant access. Student excuse letters and enrolled courses are loaded from Supabase; the Dean and Professor dashboards, notifications, assignments, and evidence examples remain prototypes and are not database workflows. Do not use real student information outside the authenticated student letter workflow.
 
 ## Database foundation
 
-`supabase/migrations/20261019000000_initial_schema.sql` defines profiles and roles, course offerings and enrollments, excuse letters, evidence metadata, decision history, and row-level security policies. It also creates a private `excuse-evidence` storage bucket with file type and size restrictions. The React prototype is not connected to Supabase. Do not treat the migration or client-side demo role checks as production security.
+`supabase/migrations/20261019000000_initial_schema.sql` defines profiles and roles, course offerings and enrollments, excuse letters, evidence metadata, decision history, and row-level security policies. It also creates a private `excuse-evidence` storage bucket with file type and size restrictions. The student letter workflow uses this schema and RLS. Apply `supabase/migrations/20261102142400_require_student_role_for_letter_insert.sql` to require the `student` profile role and match each inserted letter's course to the student's enrollment in the database policy. The Dean and Professor workflows are not implemented against the database.
 
 Before using real data, connect and test Supabase Auth, database queries, RLS authorization, and private Storage with separate student, professor, and Dean accounts. Confirm UA's official form, retention policy, encryption requirements, and approval authority before launch. The prototype only prepares local notification entries; it does not send email.
 
@@ -45,7 +45,7 @@ Restart the Vite development server after changing environment variables. The lo
 
 Vite embeds variables prefixed with `VITE_` into browser code. Only use the Supabase publishable key here. Never put a secret key, legacy service-role key, password, or other server credential in a `VITE_` variable.
 
-After Supabase Auth restores or establishes a session, the app looks up the matching `profiles` row by the authenticated user's UUID through the normal browser client and RLS. Only `student`, `professor`, and `dean` roles are accepted; a missing profile, unsupported role, or failed lookup blocks the dashboard. The profile role controls which existing prototype dashboard is displayed, but the prototype's letter, notification, assignment, and evidence data remains local and is not an authorized database workflow. Do not use real student information until those workflows are implemented and tested.
+After Supabase Auth restores or establishes a session, the app looks up the matching `profiles` row by the authenticated user's UUID through the normal browser client and RLS. Only `student`, `professor`, and `dean` roles are accepted; a missing profile, unsupported role, or failed lookup blocks the dashboard. Students can select enrolled courses, create letters, and read their own letters and permitted status history through RLS. Letter ownership, student role, course enrollment, and initial `pending` status are enforced by the database policy and defaults. The initial status is not written to `letter_status_events`; the existing trigger records later status changes. Evidence uploads, Dean decisions, and Professor review are not implemented. Other prototype data may still use browser `localStorage`; it is not the source of truth for student letters or authorization.
 
 ## Vercel deployment
 

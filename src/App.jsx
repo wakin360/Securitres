@@ -2,6 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import logo from '../ua-logo.png';
 import { getSupabaseClient, isSupabaseConfigured } from './lib/supabase.js';
 import { getProfileForUser, profileRoles } from './services/profile.js';
+import {
+  createStudentLetter,
+  getStudentCourses,
+  getStudentLetterDetails,
+  getStudentLetters,
+} from './services/studentLetters.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
@@ -78,13 +84,61 @@ function authFailureMessage(error, signingIn = false, profileLookup = false) {
 
 function formatDate(value) {
   if (!value) return '—';
-  return new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function dateRange(letter) {
   return letter.dateFrom === letter.dateTo
     ? formatDate(letter.dateFrom)
     : `${formatDate(letter.dateFrom)} – ${formatDate(letter.dateTo)}`;
+}
+
+function toStudentLetterView(letter, profile, authUser) {
+  const course = letter.course_offerings;
+  const courseName = course
+    ? `${course.course_code} · ${course.course_name}${course.section ? ` (${course.section})` : ''}`
+    : 'Course unavailable';
+
+  return {
+    id: letter.id,
+    studentName: profile?.full_name || authUser?.email || 'Student',
+    studentNumber: profile?.student_number || 'Student number not provided',
+    program: profile?.program || 'Program not provided',
+    email: authUser?.email || '',
+    course: courseName,
+    professor: '',
+    parentContact: '',
+    dateFrom: letter.absence_start,
+    dateTo: letter.absence_end,
+    reason: letter.reason,
+    evidence: [],
+    submitted: letter.submitted_at,
+    status: letter.status.charAt(0).toUpperCase() + letter.status.slice(1),
+    comment: letter.dean_comment || '',
+  };
+}
+
+function studentDataFailureMessage(error) {
+  if (import.meta.env.DEV) console.error('Student excuse-letter request failed.', error);
+  if (error?.code === '42501' || error?.code === 'PGRST301') {
+    return 'You do not have permission to access this student data. Refresh your session or contact support.';
+  }
+  if (error?.code === '23503') {
+    return 'The selected course is no longer available for your enrollment. Refresh your courses and try again.';
+  }
+  if (error instanceof TypeError || error?.name === 'AuthRetryableFetchError') {
+    return 'Could not reach the student services database. Check your connection and try again.';
+  }
+  return 'Could not load or save student records. Please try again.';
 }
 
 function initials(name) {
@@ -109,6 +163,27 @@ function StudentCell({ letter }) {
 
 function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
   if (!items.length) return <div className="empty-state">{emptyText}</div>;
+  if (mode === 'student') {
+    return (
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Course</th><th>Absence dates</th><th>Reason</th><th>Submitted</th><th>Status</th><th /></tr></thead>
+          <tbody>
+            {items.map((letter) => (
+              <tr key={letter.id}>
+                <td>{letter.course}</td>
+                <td>{dateRange(letter)}</td>
+                <td className="student-reason">{letter.reason}</td>
+                <td>{formatDate(letter.submitted)}</td>
+                <td><Status value={letter.status} /></td>
+                <td><button className="review-link" type="button" onClick={() => onOpen(letter.id)}>Details</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
   return (
     <div className="table-wrap">
       <table>
@@ -200,6 +275,18 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [profileRole, setProfileRole] = useState(null);
+  const [studentCourses, setStudentCourses] = useState([]);
+  const [studentCoursesStatus, setStudentCoursesStatus] = useState('idle');
+  const [studentCoursesError, setStudentCoursesError] = useState('');
+  const [studentLetters, setStudentLetters] = useState([]);
+  const [studentLettersStatus, setStudentLettersStatus] = useState('idle');
+  const [studentLettersError, setStudentLettersError] = useState('');
+  const [studentRefreshVersion, setStudentRefreshVersion] = useState(0);
+  const [studentSubmitting, setStudentSubmitting] = useState(false);
+  const [studentSubmitError, setStudentSubmitError] = useState('');
+  const [studentDetail, setStudentDetail] = useState(null);
+  const [studentDetailStatus, setStudentDetailStatus] = useState('idle');
+  const [studentDetailError, setStudentDetailError] = useState('');
   const [authStatus, setAuthStatus] = useState('checking-session');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -211,7 +298,6 @@ export default function App() {
   const [screen, setScreen] = useState('dashboard');
   const [currentLetterId, setCurrentLetterId] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
-  const [selectedEvidence, setSelectedEvidence] = useState([]);
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -221,10 +307,11 @@ export default function App() {
   const [assignmentCourse, setAssignmentCourse] = useState(courses[0]);
   const toastTimer = useRef(null);
   const authResolutionId = useRef(0);
+  const studentDetailRequestId = useRef(0);
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
   const visibleLetters = profileRole === 'student'
-    ? letters.filter((letter) => letter.studentName === 'Mika Santos')
+    ? studentLetters.map((letter) => toStudentLetterView(letter, profile, authUser))
     : profileRole === 'professor'
       ? letters.filter((letter) => letter.status === 'Approved' && letter.professor === 'Prof. Elena Cruz')
       : letters;
@@ -316,6 +403,52 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, [authCheckVersion]);
+
+  useEffect(() => {
+    let active = true;
+    if (profileRole !== 'student' || !authUser?.id) {
+      setStudentCourses([]);
+      setStudentCoursesStatus('idle');
+      setStudentCoursesError('');
+      setStudentLetters([]);
+      setStudentLettersStatus('idle');
+      setStudentLettersError('');
+      return () => { active = false; };
+    }
+
+    setStudentCourses([]);
+    setStudentCoursesStatus('loading');
+    setStudentCoursesError('');
+    setStudentLetters([]);
+    setStudentLettersStatus('loading');
+    setStudentLettersError('');
+
+    getStudentCourses(authUser.id)
+      .then((coursesForStudent) => {
+        if (!active) return;
+        setStudentCourses(coursesForStudent);
+        setStudentCoursesStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setStudentCoursesError(studentDataFailureMessage(error));
+        setStudentCoursesStatus('error');
+      });
+
+    getStudentLetters(authUser.id)
+      .then((lettersForStudent) => {
+        if (!active) return;
+        setStudentLetters(lettersForStudent);
+        setStudentLettersStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setStudentLettersError(studentDataFailureMessage(error));
+        setStudentLettersStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [authUser?.id, profileRole, studentRefreshVersion]);
 
   function showToast(message) {
     setToast(message);
@@ -421,9 +554,38 @@ export default function App() {
     }
   }
 
-  function openLetter(id) {
+  async function openLetter(id) {
     setCurrentLetterId(id);
     setDecisionComment('');
+    if (profileRole !== 'student') return;
+
+    const requestId = ++studentDetailRequestId.current;
+    setStudentDetail(null);
+    setStudentDetailError('');
+    setStudentDetailStatus('loading');
+    try {
+      const detail = await getStudentLetterDetails({ studentId: authUser.id, letterId: id });
+      if (requestId !== studentDetailRequestId.current) return;
+      if (!detail) {
+        setStudentDetailError('This letter could not be found or is no longer available.');
+        setStudentDetailStatus('error');
+        return;
+      }
+      setStudentDetail(detail);
+      setStudentDetailStatus('ready');
+    } catch (error) {
+      if (requestId !== studentDetailRequestId.current) return;
+      setStudentDetailError(studentDataFailureMessage(error));
+      setStudentDetailStatus('error');
+    }
+  }
+
+  function closeLetter() {
+    studentDetailRequestId.current += 1;
+    setCurrentLetterId(null);
+    setStudentDetail(null);
+    setStudentDetailError('');
+    setStudentDetailStatus('idle');
   }
 
   function decideLetter(status) {
@@ -459,75 +621,54 @@ export default function App() {
     showToast(`Letter ${letter.id} ${status.toLowerCase()}. Email notifications were prepared for the student and professor.`);
   }
 
-  async function handleEvidence(event) {
-    const files = [...event.target.files];
-    event.target.value = '';
-    if (selectedEvidence.length + files.length > 3) {
-      showToast('Attach up to 3 evidence files per letter.');
-      return;
-    }
-    if (files.some((file) => file.size > 8 * 1024 * 1024)) {
-      showToast('Each evidence file must be smaller than 8 MB.');
-      return;
-    }
-    try {
-      const additions = [];
-      for (const file of files) {
-        if (file.type.startsWith('image/')) {
-          const bitmap = await createImageBitmap(file);
-          const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-          canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-          bitmap.close();
-          additions.push({ name: file.name, type: 'image/jpeg', dataUrl: canvas.toDataURL('image/jpeg', 0.78) });
-        } else {
-          additions.push({ name: file.name, type: file.type || 'application/pdf' });
-        }
-      }
-      setSelectedEvidence((current) => [...current, ...additions]);
-    } catch {
-      showToast('Could not read that image. Try a JPG or PNG file.');
-    }
-  }
-
-  function handleSubmitLetter(event) {
+  async function handleSubmitLetter(event) {
     event.preventDefault();
-    if (profileRole !== 'student') {
-      showToast('Only student accounts can submit excuse letters.');
-      return;
-    }
+    if (profileRole !== 'student' || !authUser?.id || studentSubmitting) return;
+    const form = event.currentTarget;
     const data = new FormData(event.currentTarget);
-    const from = String(data.get('dateFrom'));
-    const to = String(data.get('dateTo'));
-    if (to < from) {
-      showToast('The end date must be on or after the start date.');
+    const courseId = String(data.get('courseId') || '');
+    const absenceStart = String(data.get('absenceStart') || '');
+    const absenceEnd = String(data.get('absenceEnd') || '');
+    const reason = String(data.get('reason') || '').trim();
+    setStudentSubmitError('');
+
+    if (!studentCourses.some((course) => course.id === courseId)) {
+      setStudentSubmitError('Select a course in which you are enrolled.');
       return;
     }
-    const nextNumber = String(420 + letters.length + 1).padStart(4, '0');
-    const nextLetter = {
-      id: `UA-2026-${nextNumber}`,
-      studentName: String(data.get('studentName')).trim(),
-      studentNumber: String(data.get('studentNumber')).trim(),
-      program: String(data.get('program')).trim(),
-      email: String(data.get('email')).trim(),
-      course: String(data.get('course')).trim(),
-      professor: String(data.get('professor')).trim(),
-      parentContact: String(data.get('parentContact')).trim(),
-      dateFrom: from,
-      dateTo: to,
-      reason: String(data.get('reason')).trim(),
-      evidence: selectedEvidence,
-      submitted: new Date().toISOString().slice(0, 10),
-      status: 'Pending',
-      comment: '',
-    };
-    if (!changeLetters([nextLetter, ...letters])) return;
-    event.currentTarget.reset();
-    setSelectedEvidence([]);
-    navigate('letters');
-    showToast('Your letter was submitted to the Dean for review.');
+    if (!absenceStart || !absenceEnd || !reason) {
+      setStudentSubmitError('Complete the course, absence dates, and reason fields.');
+      return;
+    }
+    if (absenceEnd < absenceStart) {
+      setStudentSubmitError('The end date must be on or after the start date.');
+      return;
+    }
+    if (studentCoursesStatus !== 'ready') {
+      setStudentSubmitError('Your enrolled courses are not ready. Refresh them and try again.');
+      return;
+    }
+
+    setStudentSubmitting(true);
+    try {
+      const createdLetter = await createStudentLetter({
+        studentId: authUser.id,
+        courseId,
+        absenceStart,
+        absenceEnd,
+        reason,
+        enrolledCourses: studentCourses,
+      });
+      setStudentLetters((current) => [createdLetter, ...current]);
+      setStudentLettersStatus('ready');
+      form.reset();
+      navigate('letters');
+      showToast('Your excuse letter was submitted for review.');
+    } catch (error) {
+      setStudentSubmitError(studentDataFailureMessage(error));
+    } finally {
+      setStudentSubmitting(false);
+    }
   }
 
   function saveAssignment() {
@@ -543,13 +684,17 @@ export default function App() {
   const sortedLetters = [...visibleLetters].sort((a, b) => b.submitted.localeCompare(a.submitted));
   const dashboardLetters = profileRole === 'dean' ? sortedLetters.filter((letter) => letter.status === 'Pending') : sortedLetters;
   const matches = (letter, text, status) => (!text || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(text.toLowerCase()))
-    && (status === 'all' || letter.status === status);
+    && (status === 'all' || letter.status.toLowerCase() === status.toLowerCase());
   const allLetters = sortedLetters.filter((letter) => matches(letter, search, filter));
   const historyLetters = sortedLetters.filter((letter) => matches(letter, historySearch, historyFilter));
   const pendingCount = profileRole === 'dean'
     ? letters.filter((letter) => letter.status === 'Pending').length
     : profileRole === 'professor' ? visibleLetters.length : visibleLetters.filter((letter) => letter.status === 'Pending').length;
-  const activeLetter = letters.find((letter) => letter.id === currentLetterId);
+  const activeLetter = profileRole === 'student'
+    ? studentDetail && toStudentLetterView(studentDetail, profile, authUser)
+    : letters.find((letter) => letter.id === currentLetterId);
+  const studentDetailOpen = profileRole === 'student' && Boolean(currentLetterId);
+  const modalOpen = studentDetailOpen || Boolean(activeLetter);
 
   if (authStatus === 'checking-session' || authStatus === 'loading-profile') {
     return <main className="auth-loading" role="status">{authStatus === 'loading-profile' ? 'Loading your account profile…' : 'Checking your sign-in session…'}</main>;
@@ -637,19 +782,25 @@ export default function App() {
                 <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
                 <div className="stats">
                   {[
-                    ['Total letters', visibleLetters.length, 'Across your records', 'EL'],
-                    ['Awaiting review', visibleLetters.filter((item) => item.status === 'Pending').length, 'In the Dean’s queue', '…'],
-                    ['Approved', visibleLetters.filter((item) => item.status === 'Approved').length, 'Ready to view', 'OK'],
-                    ['Disapproved', visibleLetters.filter((item) => item.status === 'Disapproved').length, 'See Dean comments', 'NO'],
+                    ['Total letters', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.length, 'Across your records', 'EL'],
+                    ['Awaiting review', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Pending').length, 'In the Dean’s queue', '…'],
+                    ['Approved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Approved').length, 'Ready to view', 'OK'],
+                    ['Disapproved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Disapproved').length, 'See Dean comments', 'NO'],
                   ].map(([label, value, note, mark]) => <div className="stat" key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
                 </div>
                 <div className="workspace">
-                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div>{profileRole !== 'professor' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div>
-                    <LetterTable items={dashboardLetters.slice(0, 5)} mode="recent" profileRole={profileRole} onOpen={openLetter} emptyText="Nothing here yet. New letters will appear as they are submitted." />
+                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'professor' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div></div>
+                    <LetterTable
+                      items={dashboardLetters.slice(0, 5)}
+                      mode={profileRole === 'student' ? 'student' : 'recent'}
+                      profileRole={profileRole}
+                      onOpen={openLetter}
+                      emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters submitted yet.' : 'Nothing here yet. New letters will appear as they are submitted.'}
+                    />
                   </section>
                   <aside className="right-col">
                     <section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{profileRole === 'student' && <button className="secondary" onClick={() => navigate('submit')} type="button">Start a letter &nbsp; →</button>}</section>
-                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} /></section>
+                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} loading={studentLettersStatus === 'loading'} error={profileRole === 'student' ? studentLettersError : ''} /></section>
                     {profileRole === 'dean' && <section className="panel assignment-panel"><div className="panel-head"><div><div className="panel-title">Professor assignments</div><div className="panel-kicker">Manage professor-to-course pairing</div></div></div>
                       <div className="assignment-list">{assignments.map((item) => <div className="assignment-item" key={`${item.professor}-${item.course}`}><div><strong>{item.professor}</strong><small>{item.course}</small></div><span className="status approved">Assigned</span></div>)}</div>
                       <div className="assignment-form"><div className="row"><div className="field"><label htmlFor="assignment-professor">Professor</label><select id="assignment-professor" value={assignmentProfessor} onChange={(event) => setAssignmentProfessor(event.target.value)}>{professors.map((name) => <option key={name}>{name}</option>)}</select></div><div className="field"><label htmlFor="assignment-course">Course</label><select id="assignment-course" value={assignmentCourse} onChange={(event) => setAssignmentCourse(event.target.value)}>{courses.map((course) => <option key={course}>{course}</option>)}</select></div></div><button className="primary" onClick={saveAssignment} type="button">Assign professor</button></div>
@@ -659,53 +810,76 @@ export default function App() {
               </section>
             )}
             {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
-              <section className="panel"><div className="panel-head"><div><div className="panel-title">All letters</div><div className="panel-kicker">{sortedLetters.length} letter{sortedLetters.length === 1 ? '' : 's'} in this view</div></div><div className="table-tools"><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
-                <LetterTable items={allLetters} mode="all" profileRole={profileRole} onOpen={openLetter} emptyText="No letters match this view." />
+              <section className="panel"><div className="panel-head"><div><div className="panel-title">All letters</div><div className="panel-kicker">{profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
+                {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
+                <LetterTable items={allLetters} mode={profileRole === 'student' ? 'student' : 'all'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters match this view.' : 'No letters match this view.'} />
               </section>
             </section>}
-            {screen === 'history' && profileRole !== 'professor' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of submissions, decisions, and Dean comments.</p></div></div>
-              <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{sortedLetters.length} complete record{sortedLetters.length === 1 ? '' : 's'}</div></div><div className="table-tools"><input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
-                <LetterTable items={historyLetters} mode="history" profileRole={profileRole} onOpen={openLetter} emptyText="No letters to show yet." />
+            {screen === 'history' && profileRole !== 'professor' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of your submissions and any recorded status changes.</p></div></div>
+              <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} complete record${sortedLetters.length === 1 ? '' : 's'}`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
+                {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
+                <LetterTable items={historyLetters} mode={profileRole === 'student' ? 'student' : 'history'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : 'No letters to show yet.'} />
               </section>
             </section>}
-            {screen === 'submit' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Complete the form as it should appear on your school excuse letter.</p></div></div>
+            {screen === 'submit' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Choose an enrolled course and enter the dates and reason for your absence.</p></div></div>
               <div className="letter-layout">
                 <form className="panel form-panel" onSubmit={handleSubmitLetter}>
-                  <div className="form-section"><h2 className="section-title">Student information</h2><div className="form-grid">
-                    <div className="field"><label htmlFor="student-name">Full name *</label><input id="student-name" name="studentName" required placeholder="First and last name" /></div>
-                    <div className="field"><label htmlFor="student-number">Student number *</label><input id="student-number" name="studentNumber" required placeholder="e.g. 2024-01234" /></div>
-                    <div className="field"><label htmlFor="program">Program / year level *</label><input id="program" name="program" required placeholder="e.g. BSIT, 2nd year" /></div>
-                    <div className="field"><label htmlFor="email">School email *</label><input id="email" name="email" type="email" required placeholder="name@school.edu" /></div>
-                  </div></div>
+                  <div className="form-section"><h2 className="section-title">Student account</h2><p className="form-account">{profile?.full_name || authUser.email}{profile?.student_number ? ` · ${profile.student_number}` : ''}</p><p className="field-hint">Your signed-in account is used as the owner of this request.</p></div>
                   <div className="form-section"><h2 className="section-title">Class and absence</h2><div className="form-grid">
-                    <div className="field"><label htmlFor="course">Course / subject *</label><input id="course" name="course" list="course-options" required placeholder="e.g. Introduction to Computing" /><datalist id="course-options">{courses.map((course) => <option key={course} value={course} />)}</datalist></div>
-                    <div className="field"><label htmlFor="professor">Assigned professor *</label><input id="professor" name="professor" list="professor-options" required placeholder="Type professor name" /><datalist id="professor-options">{professors.map((name) => <option key={name} value={name} />)}</datalist></div>
-                    <div className="field"><label htmlFor="date-from">Absence from *</label><input id="date-from" name="dateFrom" type="date" required /></div>
-                    <div className="field"><label htmlFor="date-to">Absence to *</label><input id="date-to" name="dateTo" type="date" required /></div>
-                    <div className="field"><label htmlFor="parent-contact">Parent/guardian contact number *</label><input id="parent-contact" name="parentContact" required placeholder="e.g. 0917-123-4567" /></div>
-                    <div className="field full"><label htmlFor="reason">Reason for absence *</label><textarea id="reason" name="reason" required placeholder="Briefly explain the reason for your absence" /></div>
+                    <div className="field full"><label htmlFor="course-id">Enrolled course / class *</label><select id="course-id" name="courseId" required disabled={studentCoursesStatus !== 'ready' || studentCourses.length === 0 || studentSubmitting} defaultValue=""><option value="" disabled>{studentCoursesStatus === 'loading' ? 'Loading your enrolled courses…' : studentCoursesStatus === 'error' ? 'Courses could not be loaded' : studentCourses.length === 0 ? 'No enrolled courses found' : 'Choose an enrolled course'}</option>{studentCourses.map((course) => <option key={course.id} value={course.id}>{course.course_code} · {course.course_name}{course.section ? ` (${course.section})` : ''}</option>)}</select></div>
+                    {studentCoursesStatus === 'error' && <div className="field full"><p className="student-data-error" role="alert">{studentCoursesError}</p><button className="secondary" type="button" onClick={() => setStudentRefreshVersion((version) => version + 1)}>Retry course loading</button></div>}
+                    {studentCoursesStatus === 'ready' && studentCourses.length === 0 && <p className="field-hint full">No courses are currently linked to your account. Contact Student Affairs if you believe this is incorrect.</p>}
+                    <div className="field"><label htmlFor="absence-start">Absence from *</label><input id="absence-start" name="absenceStart" type="date" required disabled={studentSubmitting} /></div>
+                    <div className="field"><label htmlFor="absence-end">Absence to *</label><input id="absence-end" name="absenceEnd" type="date" required disabled={studentSubmitting} /></div>
+                    <div className="field full"><label htmlFor="reason">Reason for absence *</label><textarea id="reason" name="reason" required maxLength={4000} placeholder="Briefly explain the reason for your absence" disabled={studentSubmitting} /></div>
                   </div></div>
-                  <div className="form-section"><h2 className="section-title">Supporting evidence</h2><div className="field"><label htmlFor="evidence">Attach supporting pictures or documents</label><div className="upload">Choose up to 3 images or PDFs, max 8 MB each<input id="evidence" name="evidence" type="file" accept="image/*,.pdf" multiple onChange={handleEvidence} /></div><div className="field-hint">Images are saved in this browser and visible to reviewers. PDFs show their filename only in this demo.</div><div className="evidence-preview" aria-live="polite">{selectedEvidence.map((item, index) => <div className="evidence-item" key={`${item.name}-${index}`}>{item.dataUrl ? <img src={item.dataUrl} alt={`Image preview: ${item.name}`} /> : <span className="evidence-name">PDF document</span>}<span className="evidence-name">{item.name}</span><button className="evidence-remove" type="button" onClick={() => setSelectedEvidence((current) => current.filter((_, position) => position !== index))} aria-label={`Remove ${item.name}`}>×</button></div>)}</div></div></div>
-                  <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')}>Cancel</button><button className="primary" type="submit">Submit to Dean &nbsp; →</button></div>
+                  <p className="field-hint">Evidence uploads are not available in this phase.</p>
+                  {studentSubmitError && <p className="student-data-error" role="alert">{studentSubmitError}</p>}
+                  <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')} disabled={studentSubmitting}>Cancel</button><button className="primary" type="submit" disabled={studentSubmitting || studentCoursesStatus !== 'ready' || studentCourses.length === 0}>{studentSubmitting ? 'Submitting…' : 'Submit excuse letter'}</button></div>
                 </form>
-                <aside className="panel side-note"><h3>What happens next</h3><p>Your request goes to the Dean for review. Once a decision is made, the status and any comment appear in your history.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Fill in the details and attach relevant evidence.</div></div><div className="step"><div className="step-number">2</div><div><strong>Dean reviews it</strong>Student Affairs approves or declines with an optional note.</div></div><div className="step"><div className="step-number">3</div><div><strong>Professor is notified</strong>Approved letters become visible to the assigned professor.</div></div></div></aside>
+                <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await review</strong>The request remains pending until it is reviewed in a later phase.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
               </div>
             </section>}
           </div>
         </main>
       </div>
-      <div className={`modal-backdrop${activeLetter ? ' open' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={(event) => { if (event.target === event.currentTarget) setCurrentLetterId(null); }}>
-        {activeLetter && <div className="modal"><div className="modal-head"><div><h2 id="modal-title">{activeLetter.studentName}</h2><p>{activeLetter.id} · Submitted {formatDate(activeLetter.submitted)}</p></div><button className="close" onClick={() => setCurrentLetterId(null)} aria-label="Close" type="button">×</button></div>
-          <div className="modal-content"><div className="detail-grid">
-            <Detail label="Student number" value={activeLetter.studentNumber} /><Detail label="Program / year" value={activeLetter.program} /><Detail label="School email" value={activeLetter.email} /><Detail label="Parent / guardian" value={activeLetter.parentContact || 'Not provided'} />
-            <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div><Detail label="Course" value={activeLetter.course} /><Detail label="Assigned professor" value={activeLetter.professor} /><Detail label="Absence dates" value={dateRange(activeLetter)} />
-            <div><div className="detail-label">Evidence</div><div className="detail-value"><div className="review-evidence">{(activeLetter.evidence || []).length ? activeLetter.evidence.map((item, index) => { const evidence = typeof item === 'string' ? { name: item } : item; return <Evidence key={`${evidence.name}-${index}`} item={evidence} />; }) : <span>No evidence attached</span>}</div></div></div>
-            <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{activeLetter.reason}</div></div>
-          </div>
-          {activeLetter.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
-          <div className="qr-center"><QRCode letter={activeLetter} /></div>
-          </div>
-          <div className="modal-actions">{profileRole === 'dean' && activeLetter.status === 'Pending' ? <><div className="comment-field"><textarea aria-label="Optional comment for the student" placeholder="Optional comment for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></div><div className="action-right"><button className="danger" onClick={() => decideLetter('Disapproved')} type="button">Disapprove</button><button className="approve" onClick={() => decideLetter('Approved')} type="button">Approve</button></div></> : <><button className="secondary" onClick={() => setCurrentLetterId(null)} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></>}</div>
+      <div className={`modal-backdrop${modalOpen ? ' open' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={(event) => { if (event.target === event.currentTarget) closeLetter(); }}>
+        {modalOpen && <div className="modal">
+          {studentDetailOpen ? (
+            <>
+              <div className="modal-head"><div><h2 id="modal-title">Excuse letter</h2><p>{activeLetter ? `${activeLetter.id} · Submitted ${formatDate(activeLetter.submitted)}` : 'Student record'}</p></div><button className="close" onClick={closeLetter} aria-label="Close" type="button">×</button></div>
+              <div className="modal-content">
+                {studentDetailStatus === 'loading' && <p className="student-detail-message" role="status">Loading letter details…</p>}
+                {studentDetailStatus === 'error' && <p className="student-data-error" role="alert">{studentDetailError}</p>}
+                {activeLetter && <div className="detail-grid">
+                  <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div>
+                  <Detail label="Course" value={activeLetter.course} />
+                  <Detail label="Absence dates" value={dateRange(activeLetter)} />
+                  <Detail label="Submitted" value={formatDateTime(activeLetter.submitted)} />
+                  <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{activeLetter.reason}</div></div>
+                </div>}
+                {activeLetter?.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
+                {activeLetter && <section className="status-history"><h3>Status history</h3>{studentDetail.statusEvents.length
+                  ? <ol>{studentDetail.statusEvents.map((event) => <li key={event.id}><strong>{event.old_status} → {event.new_status}</strong><time>{formatDateTime(event.created_at)}</time>{event.comment && <p>{event.comment}</p>}</li>)}</ol>
+                  : <p>No status changes have been recorded yet. A history entry is created when the status changes.</p>}</section>}
+              </div>
+              <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">Status changes are not available in this phase.</span></div>
+            </>
+          ) : activeLetter && (
+            <>
+              <div className="modal-head"><div><h2 id="modal-title">{activeLetter.studentName}</h2><p>{activeLetter.id} · Submitted {formatDate(activeLetter.submitted)}</p></div><button className="close" onClick={closeLetter} aria-label="Close" type="button">×</button></div>
+              <div className="modal-content"><div className="detail-grid">
+                <Detail label="Student number" value={activeLetter.studentNumber} /><Detail label="Program / year" value={activeLetter.program} /><Detail label="School email" value={activeLetter.email} /><Detail label="Parent / guardian" value={activeLetter.parentContact || 'Not provided'} />
+                <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div><Detail label="Course" value={activeLetter.course} /><Detail label="Assigned professor" value={activeLetter.professor} /><Detail label="Absence dates" value={dateRange(activeLetter)} />
+                <div><div className="detail-label">Evidence</div><div className="detail-value"><div className="review-evidence">{(activeLetter.evidence || []).length ? activeLetter.evidence.map((item, index) => { const evidence = typeof item === 'string' ? { name: item } : item; return <Evidence key={`${evidence.name}-${index}`} item={evidence} />; }) : <span>No evidence attached</span>}</div></div></div>
+                <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{activeLetter.reason}</div></div>
+              </div>
+              {activeLetter.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
+              <div className="qr-center"><QRCode letter={activeLetter} /></div>
+              </div>
+              <div className="modal-actions">{profileRole === 'dean' && activeLetter.status === 'Pending' ? <><div className="comment-field"><textarea aria-label="Optional comment for the student" placeholder="Optional comment for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></div><div className="action-right"><button className="danger" onClick={() => decideLetter('Disapproved')} type="button">Disapprove</button><button className="approve" onClick={() => decideLetter('Approved')} type="button">Approve</button></div></> : <><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></>}</div>
+            </>
+          )}
         </div>}
       </div>
       <div className={`toast${toast ? ' show' : ''}`} role="status">{toast}</div>
@@ -724,7 +898,9 @@ function Evidence({ item }) {
   return <span>{item.name}</span>;
 }
 
-function Activity({ items, notifications, profileRole, email, displayName }) {
+function Activity({ items, notifications, profileRole, email, displayName, loading = false, error = '' }) {
+  if (profileRole === 'student' && loading) return <div className="empty-state" role="status">Loading your activity…</div>;
+  if (profileRole === 'student' && error) return <div className="empty-state student-data-error" role="alert">{error}</div>;
   if (profileRole === 'professor' || profileRole === 'dean') {
     const list = profileRole === 'professor'
       ? notifications.filter((item) => item.email === email || item.user === displayName).slice(0, 4)
