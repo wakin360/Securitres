@@ -8,6 +8,13 @@ import {
   getStudentLetterDetails,
   getStudentLetters,
 } from './services/studentLetters.js';
+import {
+  EvidenceUploadError,
+  getStudentEvidence,
+  getStudentEvidenceSignedUrl,
+  uploadStudentEvidence,
+  validateEvidenceFile,
+} from './services/studentEvidence.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
@@ -129,6 +136,7 @@ function toStudentLetterView(letter, profile, authUser) {
 
 function studentDataFailureMessage(error) {
   if (import.meta.env.DEV) console.error('Student excuse-letter request failed.', error);
+  if (error instanceof EvidenceUploadError) return error.message;
   if (error?.code === '42501' || error?.code === 'PGRST301') {
     return 'You do not have permission to access this student data. Refresh your session or contact support.';
   }
@@ -287,6 +295,15 @@ export default function App() {
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailStatus, setStudentDetailStatus] = useState('idle');
   const [studentDetailError, setStudentDetailError] = useState('');
+  const [studentEvidence, setStudentEvidence] = useState([]);
+  const [studentEvidenceStatus, setStudentEvidenceStatus] = useState('idle');
+  const [studentEvidenceError, setStudentEvidenceError] = useState('');
+  const [studentEvidenceFile, setStudentEvidenceFile] = useState(null);
+  const [studentEvidenceFileError, setStudentEvidenceFileError] = useState('');
+  const [studentEvidenceUploading, setStudentEvidenceUploading] = useState(false);
+  const [studentEvidenceSuccess, setStudentEvidenceSuccess] = useState('');
+  const [studentEvidenceLinks, setStudentEvidenceLinks] = useState({});
+  const [studentEvidenceLinkLoading, setStudentEvidenceLinkLoading] = useState('');
   const [authStatus, setAuthStatus] = useState('checking-session');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -308,6 +325,7 @@ export default function App() {
   const toastTimer = useRef(null);
   const authResolutionId = useRef(0);
   const studentDetailRequestId = useRef(0);
+  const studentEvidenceRequestId = useRef(0);
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
   const visibleLetters = profileRole === 'student'
@@ -450,6 +468,43 @@ export default function App() {
     return () => { active = false; };
   }, [authUser?.id, profileRole, studentRefreshVersion]);
 
+  useEffect(() => {
+    let active = true;
+    const requestId = ++studentEvidenceRequestId.current;
+    if (profileRole !== 'student' || !studentDetail?.id) {
+      setStudentEvidence([]);
+      setStudentEvidenceStatus('idle');
+      setStudentEvidenceError('');
+      setStudentEvidenceFile(null);
+      setStudentEvidenceFileError('');
+      setStudentEvidenceSuccess('');
+      setStudentEvidenceLinks({});
+      return () => { active = false; };
+    }
+
+    setStudentEvidence([]);
+    setStudentEvidenceStatus('loading');
+    setStudentEvidenceError('');
+    setStudentEvidenceFile(null);
+    setStudentEvidenceFileError('');
+    setStudentEvidenceSuccess('');
+    setStudentEvidenceLinks({});
+
+    getStudentEvidence(studentDetail.id)
+      .then((records) => {
+        if (!active || requestId !== studentEvidenceRequestId.current) return;
+        setStudentEvidence(records);
+        setStudentEvidenceStatus('ready');
+      })
+      .catch((error) => {
+        if (!active || requestId !== studentEvidenceRequestId.current) return;
+        setStudentEvidenceError(studentDataFailureMessage(error));
+        setStudentEvidenceStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [profileRole, studentDetail?.id]);
+
   function showToast(message) {
     setToast(message);
     window.clearTimeout(toastTimer.current);
@@ -582,10 +637,97 @@ export default function App() {
 
   function closeLetter() {
     studentDetailRequestId.current += 1;
+    studentEvidenceRequestId.current += 1;
     setCurrentLetterId(null);
     setStudentDetail(null);
     setStudentDetailError('');
     setStudentDetailStatus('idle');
+    setStudentEvidence([]);
+    setStudentEvidenceStatus('idle');
+    setStudentEvidenceError('');
+    setStudentEvidenceFile(null);
+    setStudentEvidenceFileError('');
+    setStudentEvidenceSuccess('');
+    setStudentEvidenceLinks({});
+  }
+
+  function selectStudentEvidence(event) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    setStudentEvidenceSuccess('');
+    setStudentEvidenceFileError(file ? validateEvidenceFile(file) : '');
+    setStudentEvidenceFile(file);
+  }
+
+  async function submitStudentEvidence(event) {
+    event.preventDefault();
+    if (!studentDetail?.id || !studentEvidenceFile || studentEvidenceUploading) return;
+
+    const validationError = validateEvidenceFile(studentEvidenceFile);
+    if (validationError) {
+      setStudentEvidenceFileError(validationError);
+      return;
+    }
+
+    const requestId = studentEvidenceRequestId.current;
+    setStudentEvidenceUploading(true);
+    setStudentEvidenceFileError('');
+    setStudentEvidenceError('');
+    setStudentEvidenceSuccess('');
+    try {
+      await uploadStudentEvidence({ letterId: studentDetail.id, file: studentEvidenceFile });
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidenceFile(null);
+      setStudentEvidenceSuccess('Evidence uploaded successfully.');
+      try {
+        const records = await getStudentEvidence(studentDetail.id);
+        if (requestId !== studentEvidenceRequestId.current) return;
+        setStudentEvidence(records);
+        setStudentEvidenceStatus('ready');
+      } catch (error) {
+        if (requestId !== studentEvidenceRequestId.current) return;
+        setStudentEvidenceStatus('error');
+        setStudentEvidenceError(studentDataFailureMessage(error));
+      }
+    } catch (error) {
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidenceFileError(studentDataFailureMessage(error));
+    } finally {
+      if (requestId === studentEvidenceRequestId.current) setStudentEvidenceUploading(false);
+    }
+  }
+
+  async function prepareStudentEvidenceLink(evidenceId) {
+    const requestId = studentEvidenceRequestId.current;
+    setStudentEvidenceLinkLoading(evidenceId);
+    setStudentEvidenceError('');
+    try {
+      const signedUrl = await getStudentEvidenceSignedUrl(evidenceId);
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidenceLinks((current) => ({ ...current, [evidenceId]: signedUrl }));
+    } catch (error) {
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidenceError(studentDataFailureMessage(error));
+    } finally {
+      if (requestId === studentEvidenceRequestId.current) setStudentEvidenceLinkLoading('');
+    }
+  }
+
+  async function refreshStudentEvidence() {
+    if (!studentDetail?.id) return;
+    const requestId = ++studentEvidenceRequestId.current;
+    setStudentEvidenceStatus('loading');
+    setStudentEvidenceError('');
+    try {
+      const records = await getStudentEvidence(studentDetail.id);
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidence(records);
+      setStudentEvidenceStatus('ready');
+    } catch (error) {
+      if (requestId !== studentEvidenceRequestId.current) return;
+      setStudentEvidenceError(studentDataFailureMessage(error));
+      setStudentEvidenceStatus('error');
+    }
   }
 
   function decideLetter(status) {
@@ -862,6 +1004,29 @@ export default function App() {
                 {activeLetter && <section className="status-history"><h3>Status history</h3>{studentDetail.statusEvents.length
                   ? <ol>{studentDetail.statusEvents.map((event) => <li key={event.id}><strong>{event.old_status} → {event.new_status}</strong><time>{formatDateTime(event.created_at)}</time>{event.comment && <p>{event.comment}</p>}</li>)}</ol>
                   : <p>No status changes have been recorded yet. A history entry is created when the status changes.</p>}</section>}
+                {activeLetter && <section className="student-evidence">
+                  <div className="student-evidence-heading"><h3>Evidence</h3>{studentEvidenceStatus !== 'idle' && <button className="secondary" type="button" disabled={studentEvidenceStatus === 'loading'} onClick={refreshStudentEvidence}>Refresh</button>}</div>
+                  {studentEvidenceStatus === 'loading' && <p className="student-detail-message" role="status">Loading evidence…</p>}
+                  {studentEvidenceStatus === 'error' && <p className="student-data-error" role="alert">{studentEvidenceError}</p>}
+                  {studentEvidenceStatus === 'ready' && studentEvidence.length === 0 && <p className="field-hint">No evidence has been uploaded for this letter.</p>}
+                  {studentEvidence.length > 0 && <ul className="student-evidence-list">{studentEvidence.map((item) => (
+                    <li key={item.id}>
+                      <div><strong>{item.original_filename}</strong><small>{item.mime_type} · {(item.size_bytes / 1024 / 1024).toFixed(2)} MB · Uploaded {formatDateTime(item.uploaded_at)}</small></div>
+                      {studentEvidenceLinks[item.id]
+                        ? <div className="student-evidence-actions"><a className="secondary evidence-open" href={studentEvidenceLinks[item.id]} target="_blank" rel="noopener noreferrer">Open private file</a><button className="review-link" type="button" onClick={() => prepareStudentEvidenceLink(item.id)}>Get new link</button></div>
+                        : <button className="secondary" type="button" disabled={studentEvidenceLinkLoading === item.id} onClick={() => prepareStudentEvidenceLink(item.id)}>{studentEvidenceLinkLoading === item.id ? 'Preparing…' : 'Get secure link'}</button>}
+                    </li>
+                  ))}</ul>}
+                  {studentEvidenceStatus === 'ready' && studentDetail.status === 'pending' && <form className="student-evidence-upload" onSubmit={submitStudentEvidence}>
+                    <label htmlFor="student-evidence-file">Add a file (PDF, JPG, or PNG; up to 8 MB)</label>
+                    <input id="student-evidence-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" disabled={studentEvidenceUploading} onChange={selectStudentEvidence} />
+                    {studentEvidenceFile && <p className="field-hint">Selected: {studentEvidenceFile.name} · {(studentEvidenceFile.size / 1024 / 1024).toFixed(2)} MB</p>}
+                    {studentEvidenceFileError && <p className="student-data-error" role="alert">{studentEvidenceFileError}</p>}
+                    {studentEvidenceSuccess && <p className="student-evidence-success" role="status">{studentEvidenceSuccess}</p>}
+                    <button className="primary" type="submit" disabled={!studentEvidenceFile || studentEvidenceUploading || Boolean(studentEvidenceFileError)}>{studentEvidenceUploading ? 'Uploading…' : 'Upload evidence'}</button>
+                  </form>}
+                  {activeLetter.status !== 'pending' && <p className="field-hint">Evidence uploads are available only while the letter is pending. Deletion is not available.</p>}
+                </section>}
               </div>
               <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">Status changes are not available in this phase.</span></div>
             </>
