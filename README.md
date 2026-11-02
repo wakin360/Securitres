@@ -42,8 +42,17 @@ These credentials are hard-coded in public JavaScript and are only a preview gat
 
 Before using real data, connect and test Supabase Auth, database queries, RLS authorization, and private Storage with separate student, professor, and Dean accounts. Confirm UA's official form, retention policy, encryption requirements, and approval authority before launch. The prototype only prepares local notification entries; it does not send email.
 
+## Supabase client configuration
+
+The centralized browser client is in `src/lib/supabase.js`. Copy `.env.example` to `.env.local` and set:
+
+- `VITE_SUPABASE_URL`: the Supabase project URL.
+- `VITE_SUPABASE_PUBLISHABLE_KEY`: the project's Supabase publishable key. This public key is intended for browser use; database access must be protected by RLS.
+
+Vite embeds variables prefixed with `VITE_` into browser code. Only use the Supabase publishable key here. Never put a secret key, legacy service-role key, password, or other server credential in a `VITE_` variable. The client is only configuration groundwork at this stage; authentication and database workflows are not implemented.
+
 ## Vercel deployment
 
 Import this repository in Vercel using the project root. Use `npm run build` as the build command and `dist` as the output directory. `vite.config.js` includes the role redirect pages in the build, and `vercel.json` retains the clean role URLs and baseline security headers. This deploys the workflow demo, not production access control.
 
-When Supabase is connected in a future phase, configure the public project URL and anon key in Vercel's frontend environment variables. Never put a Supabase service-role key in browser code or frontend environment variables.
+When deploying, configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as Vercel frontend environment variables. Never put a Supabase secret or service-role key in browser code or frontend environment variables.
