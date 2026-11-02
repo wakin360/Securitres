@@ -1,8 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+function getSupabaseUrl(value) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    url.pathname = url.pathname.replace(/\/rest\/v1\/?$/, '');
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+const supabaseUrl = getSupabaseUrl(configuredSupabaseUrl);
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
 export const supabase = isSupabaseConfigured

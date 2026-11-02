@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import logo from '../ua-logo.png';
+import { getSupabaseClient, isSupabaseConfigured } from './lib/supabase.js';
+import { getProfileForUser, profileRoles } from './services/profile.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
   notifications: 'ua-notifications-v1',
   assignments: 'ua-professor-assignments-v1',
-  session: 'ua-demo-session',
 };
 
 const professors = [
@@ -24,18 +25,6 @@ const courses = [
   'Introduction to Computing',
   'Systems Analysis',
 ];
-
-const demoAccounts = {
-  'mika.student@udu.ph': { password: 'UAstudent2026!', role: 'student' },
-  'amara.dean@udu.ph': { password: 'UAdean2026!', role: 'dean' },
-  'elena.prof@udu.ph': { password: 'UAprof2026!', role: 'professor' },
-};
-
-const people = {
-  student: { name: 'Mika Santos', initials: 'MS', label: 'Student account', email: 'mika.student@udu.ph' },
-  dean: { name: 'Dr. Amara Villanueva', initials: 'AV', label: 'Dean / Admin', email: 'amara.dean@udu.ph' },
-  professor: { name: 'Prof. Elena Cruz', initials: 'EC', label: 'Professor account', email: 'elena.prof@udu.ph' },
-};
 
 const seedLetters = [
   { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
@@ -64,32 +53,27 @@ function readStored(key, fallback) {
   }
 }
 
-function readDemoSession() {
-  try {
-    const value = sessionStorage.getItem(STORAGE_KEYS.session);
-    return value ? JSON.parse(value) : null;
-  } catch {
-    return null;
-  }
-}
-
 function writeStored(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function getIntendedRole() {
-  const queryRole = new URLSearchParams(window.location.search).get('role');
-  const pathRole = window.location.pathname.slice(1).split('.')[0];
-  const role = queryRole || pathRole;
-  return ['student', 'dean', 'professor'].includes(role) ? role : null;
-}
-
-function getRestoredRole() {
-  const stored = readDemoSession();
-  if (stored && ['student', 'dean', 'professor'].includes(stored.role)
-    && (!getIntendedRole() || stored.role === getIntendedRole())) return stored.role;
-  if (stored) sessionStorage.removeItem(STORAGE_KEYS.session);
-  return null;
+function authFailureMessage(error, signingIn = false, profileLookup = false) {
+  const message = String(error?.message || '').toLowerCase();
+  if (profileLookup) {
+    if (error?.name === 'AuthRetryableFetchError' || error instanceof TypeError || message.includes('fetch')) {
+      return 'Could not reach the profile service. Check your internet connection and try again.';
+    }
+    return 'Could not load your profile. Check your connection and try again.';
+  }
+  if (signingIn && (error?.status === 400 || error?.code === 'invalid_credentials' || message.includes('invalid login credentials'))) {
+    return 'Email or password is incorrect.';
+  }
+  if (error?.name === 'AuthRetryableFetchError' || error instanceof TypeError || message.includes('fetch')) {
+    return 'Could not reach the sign-in service. Check your internet connection and try again.';
+  }
+  return signingIn
+    ? 'Could not sign in right now. Please try again.'
+    : 'Could not verify your sign-in session. Check your connection and retry.';
 }
 
 function formatDate(value) {
@@ -123,7 +107,7 @@ function StudentCell({ letter }) {
   );
 }
 
-function LetterTable({ items, mode, role, onOpen, emptyText }) {
+function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
   if (!items.length) return <div className="empty-state">{emptyText}</div>;
   return (
     <div className="table-wrap">
@@ -148,7 +132,7 @@ function LetterTable({ items, mode, role, onOpen, emptyText }) {
               {mode !== 'history' && <td>{formatDate(letter.submitted)}</td>}
               <td><Status value={letter.status} /></td>
               {mode === 'history' && <td>{letter.comment || <span className="muted-dash">—</span>}</td>}
-              <td><button className="review-link" type="button" onClick={() => onOpen(letter.id)}>{role === 'dean' && letter.status === 'Pending' ? 'Review' : 'Details'}</button></td>
+              <td><button className="review-link" type="button" onClick={() => onOpen(letter.id)}>{profileRole === 'dean' && letter.status === 'Pending' ? 'Review' : 'Details'}</button></td>
             </tr>
           ))}
         </tbody>
@@ -213,13 +197,18 @@ function QRCode({ letter }) {
 }
 
 export default function App() {
-  const intendedRole = useMemo(getIntendedRole, []);
-  const [role, setRole] = useState(getRestoredRole);
+  const [authUser, setAuthUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [profileRole, setProfileRole] = useState(null);
+  const [authStatus, setAuthStatus] = useState('checking-session');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authCheckVersion, setAuthCheckVersion] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
   const [letters, setLetters] = useState(() => readStored(STORAGE_KEYS.letters, seedLetters));
   const [notifications, setNotifications] = useState(() => readStored(STORAGE_KEYS.notifications, seedNotifications));
   const [assignments, setAssignments] = useState(() => readStored(STORAGE_KEYS.assignments, seedAssignments));
   const [screen, setScreen] = useState('dashboard');
-  const [loginError, setLoginError] = useState('');
   const [currentLetterId, setCurrentLetterId] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
   const [selectedEvidence, setSelectedEvidence] = useState([]);
@@ -231,12 +220,102 @@ export default function App() {
   const [assignmentProfessor, setAssignmentProfessor] = useState(professors[0]);
   const [assignmentCourse, setAssignmentCourse] = useState(courses[0]);
   const toastTimer = useRef(null);
-  const profile = people[role || 'student'];
-  const visibleLetters = role === 'student'
+  const authResolutionId = useRef(0);
+  const displayName = profile?.full_name || authUser?.email || 'University user';
+  const displayInitials = initials(displayName);
+  const visibleLetters = profileRole === 'student'
     ? letters.filter((letter) => letter.studentName === 'Mika Santos')
-    : role === 'professor'
-      ? letters.filter((letter) => letter.status === 'Approved' && letter.professor === profile.name)
+    : profileRole === 'professor'
+      ? letters.filter((letter) => letter.status === 'Approved' && letter.professor === 'Prof. Elena Cruz')
       : letters;
+
+  useEffect(() => {
+    let active = true;
+    if (!isSupabaseConfigured) {
+      setAuthStatus('missing-configuration');
+      return () => { active = false; };
+    }
+
+    let client;
+    try {
+      client = getSupabaseClient();
+    } catch {
+      setAuthStatus('missing-configuration');
+      return () => { active = false; };
+    }
+
+    const resolveSession = async (session) => {
+      const requestId = ++authResolutionId.current;
+      const user = session?.user ?? null;
+      setAuthError('');
+      setAuthUser(user);
+      setProfile(null);
+      setProfileRole(null);
+
+      if (!user) {
+        setAuthStatus('ready');
+        setScreen('dashboard');
+        return;
+      }
+
+      setAuthStatus('loading-profile');
+      try {
+        const userProfile = await getProfileForUser(user.id);
+        if (!active || requestId !== authResolutionId.current) return;
+        if (!userProfile) {
+          setAuthStatus('missing-profile');
+          return;
+        }
+        if (!profileRoles.includes(userProfile.role)) {
+          setAuthStatus('invalid-role');
+          return;
+        }
+        setProfile(userProfile);
+        setProfileRole(userProfile.role);
+        setAuthStatus('ready');
+      } catch (error) {
+        if (!active || requestId !== authResolutionId.current) return;
+        setAuthError(authFailureMessage(error, false, true));
+        setAuthStatus('profile-error');
+      }
+    };
+
+    const initialRequestId = ++authResolutionId.current;
+    const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION' || !active) return;
+      window.setTimeout(() => {
+        if (active) void resolveSession(session);
+      }, 0);
+    });
+
+    client.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        if (!active || initialRequestId !== authResolutionId.current) return;
+        if (error) {
+          setAuthUser(null);
+          setProfile(null);
+          setProfileRole(null);
+          setAuthError(authFailureMessage(error));
+          setAuthStatus('error');
+          return;
+        }
+        void resolveSession(session);
+      })
+      .catch((error) => {
+        if (!active || initialRequestId !== authResolutionId.current) return;
+        setAuthUser(null);
+        setProfile(null);
+        setProfileRole(null);
+        setAuthError(authFailureMessage(error));
+        setAuthStatus('error');
+      });
+
+    return () => {
+      active = false;
+      authResolutionId.current += 1;
+      subscription.unsubscribe();
+    };
+  }, [authCheckVersion]);
 
   function showToast(message) {
     setToast(message);
@@ -267,40 +346,79 @@ export default function App() {
   }
 
   function navigate(nextScreen) {
-    if (nextScreen === 'submit' && role !== 'student') return;
+    if (nextScreen === 'submit' && profileRole !== 'student') return;
     setScreen(nextScreen);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function handleLogin(event) {
+  async function handleLogin(event) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    if (!isSupabaseConfigured || authLoading) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const email = String(data.get('email')).trim().toLowerCase();
-    const account = demoAccounts[email];
-    if (!account || account.password !== data.get('password')) {
-      setLoginError('Email or password is incorrect.');
-      return;
-    }
-    if (intendedRole && account.role !== intendedRole) {
-      setLoginError(`This page is for the ${intendedRole === 'dean' ? 'Dean / Admin' : intendedRole} account. Sign in with that account.`);
-      return;
-    }
-    const nextSession = { email, role: account.role };
+    const password = String(data.get('password'));
+    data.delete('password');
+    form.reset();
+    setAuthLoading(true);
+    setAuthError('');
     try {
-      sessionStorage.setItem(STORAGE_KEYS.session, JSON.stringify(nextSession));
-      setRole(account.role);
-      setScreen('dashboard');
-      window.history.replaceState({}, '', `/${account.role}`);
-    } catch {
-      setLoginError('Could not start your demo session. Check browser storage and try again.');
+      const { data: { session }, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+      if (error) {
+        setAuthError(authFailureMessage(error, true));
+        return;
+      }
+      if (session?.user) {
+        const requestId = ++authResolutionId.current;
+        setAuthUser(session.user);
+        setProfile(null);
+        setProfileRole(null);
+        setAuthStatus('loading-profile');
+        try {
+          const userProfile = await getProfileForUser(session.user.id);
+          if (requestId !== authResolutionId.current) return;
+          if (!userProfile) {
+            setAuthStatus('missing-profile');
+          } else if (!profileRoles.includes(userProfile.role)) {
+            setAuthStatus('invalid-role');
+          } else {
+            setProfile(userProfile);
+            setProfileRole(userProfile.role);
+            setAuthStatus('ready');
+            setScreen('dashboard');
+          }
+        } catch (error) {
+          if (requestId !== authResolutionId.current) return;
+          setAuthError(authFailureMessage(error, false, true));
+          setAuthStatus('profile-error');
+        }
+      } else {
+        setAuthError('Sign-in did not return an authenticated session. Please try again.');
+      }
+    } catch (error) {
+      setAuthError(authFailureMessage(error, true));
+    } finally {
+      setAuthLoading(false);
     }
   }
 
-  function logout() {
-    sessionStorage.removeItem(STORAGE_KEYS.session);
-    setRole(null);
-    setScreen('dashboard');
-    window.history.replaceState({}, '', '/');
+  async function logout() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setAuthError('');
+    try {
+      const { error } = await getSupabaseClient().auth.signOut({ scope: 'local' });
+      if (error) {
+        setAuthError(authFailureMessage(error));
+        return;
+      }
+      setScreen('dashboard');
+      window.history.replaceState({}, '', '/');
+    } catch (error) {
+      setAuthError(authFailureMessage(error));
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   function openLetter(id) {
@@ -309,7 +427,7 @@ export default function App() {
   }
 
   function decideLetter(status) {
-    if (role !== 'dean' || !['Approved', 'Disapproved'].includes(status)) return;
+    if (profileRole !== 'dean' || !['Approved', 'Disapproved'].includes(status)) return;
     const letter = letters.find((item) => item.id === currentLetterId && item.status === 'Pending');
     if (!letter) return;
     const decidedLetter = { ...letter, status, comment: decisionComment.trim() };
@@ -376,7 +494,7 @@ export default function App() {
 
   function handleSubmitLetter(event) {
     event.preventDefault();
-    if (role !== 'student') {
+    if (profileRole !== 'student') {
       showToast('Only student accounts can submit excuse letters.');
       return;
     }
@@ -423,17 +541,45 @@ export default function App() {
   }
 
   const sortedLetters = [...visibleLetters].sort((a, b) => b.submitted.localeCompare(a.submitted));
-  const dashboardLetters = role === 'dean' ? sortedLetters.filter((letter) => letter.status === 'Pending') : sortedLetters;
+  const dashboardLetters = profileRole === 'dean' ? sortedLetters.filter((letter) => letter.status === 'Pending') : sortedLetters;
   const matches = (letter, text, status) => (!text || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(text.toLowerCase()))
     && (status === 'all' || letter.status === status);
   const allLetters = sortedLetters.filter((letter) => matches(letter, search, filter));
   const historyLetters = sortedLetters.filter((letter) => matches(letter, historySearch, historyFilter));
-  const pendingCount = role === 'dean'
+  const pendingCount = profileRole === 'dean'
     ? letters.filter((letter) => letter.status === 'Pending').length
-    : role === 'professor' ? visibleLetters.length : visibleLetters.filter((letter) => letter.status === 'Pending').length;
+    : profileRole === 'professor' ? visibleLetters.length : visibleLetters.filter((letter) => letter.status === 'Pending').length;
   const activeLetter = letters.find((letter) => letter.id === currentLetterId);
 
-  if (!role) {
+  if (authStatus === 'checking-session' || authStatus === 'loading-profile') {
+    return <main className="auth-loading" role="status">{authStatus === 'loading-profile' ? 'Loading your account profile…' : 'Checking your sign-in session…'}</main>;
+  }
+
+  if (['error', 'profile-error', 'missing-profile', 'invalid-role', 'missing-configuration'].includes(authStatus)) {
+    const recoveryMessage = {
+      error: authError,
+      'profile-error': authError,
+      'missing-profile': 'Your signed-in account does not have a profile. Contact an administrator to provision your account.',
+      'invalid-role': 'Your profile has an unsupported role. Access is blocked; contact an administrator.',
+      'missing-configuration': 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY, then restart Vite.',
+    }[authStatus];
+    return (
+      <section className="login-screen">
+        <div className="login-aside">
+          <div className="login-brand"><img src={logo} alt="University of the Assumption seal" /><div><div className="login-brand-name">University of the Assumption</div><div className="login-brand-sub">Student Affairs · San Fernando, Pampanga</div></div></div>
+          <div className="login-message"><div className="eyebrow">Account access</div><h1>We could not verify your account.</h1><p>Your dashboard is unavailable until your account and profile can be verified.</p></div>
+          <div className="login-footer">Academic year 2026-2027 · University of the Assumption</div>
+        </div>
+        <div className="login-panel"><div className="login-card">
+          <h2>Account check</h2><p className="login-error" role="alert">{recoveryMessage}</p>
+          {authStatus !== 'missing-configuration' && <button className="secondary auth-retry" type="button" onClick={() => { setAuthError(''); setAuthStatus('checking-session'); setAuthCheckVersion((version) => version + 1); }}>Retry</button>}
+          {authUser && <button className="secondary auth-retry" type="button" onClick={logout} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}
+        </div></div>
+      </section>
+    );
+  }
+
+  if (!authUser) {
     return (
       <section className="login-screen">
         <div className="login-aside">
@@ -444,16 +590,13 @@ export default function App() {
         <div className="login-panel">
           <form className="login-card" onSubmit={handleLogin}>
             <div className="eyebrow">Account access</div><h2>Sign in</h2>
-            <p>{intendedRole ? `Sign in with the account assigned to the ${intendedRole === 'dean' ? 'Dean / Admin' : intendedRole} portal.` : 'Use the account assigned to your university role.'}</p>
-            <div className="field"><label htmlFor="login-email">University email</label><input id="login-email" name="email" type="email" autoComplete="username" required placeholder="name@udu.ph" /></div>
-            <div className="field"><label htmlFor="login-password">Password</label><input id="login-password" name="password" type="password" autoComplete="current-password" required placeholder="Enter your password" /></div>
-            <button className="primary login-submit" type="submit">Sign in</button>
-            <p className="login-error" role="alert">{loginError}</p>
-            <details className="demo-access"><summary>Show demo account credentials</summary><div className="demo-accounts">
-              <div className="demo-account"><strong>Student</strong><br /><code>mika.student@udu.ph</code><br /><code>UAstudent2026!</code></div>
-              <div className="demo-account"><strong>Dean / Admin</strong><br /><code>amara.dean@udu.ph</code><br /><code>UAdean2026!</code></div>
-              <div className="demo-account"><strong>Professor</strong><br /><code>elena.prof@udu.ph</code><br /><code>UAprof2026!</code></div>
-            </div></details>
+            <p>{isSupabaseConfigured
+              ? 'Sign in with your university account.'
+              : 'Sign-in is unavailable until Supabase is configured.'}</p>
+            <div className="field"><label htmlFor="login-email">University email</label><input id="login-email" name="email" type="email" autoComplete="username" required disabled={!isSupabaseConfigured || authLoading} placeholder="name@udu.ph" /></div>
+            <div className="field"><label htmlFor="login-password">Password</label><input id="login-password" name="password" type="password" autoComplete="current-password" required disabled={!isSupabaseConfigured || authLoading} placeholder="Enter your password" /></div>
+            <button className="primary login-submit" type="submit" disabled={!isSupabaseConfigured || authLoading}>{authLoading ? 'Signing in…' : 'Sign in'}</button>
+            {authError && <p className="login-error" role="alert">{authError}</p>}
           </form>
         </div>
       </section>
@@ -464,7 +607,7 @@ export default function App() {
     student: ['Good morning, Mika.', 'Your excuse letters, all in one place.', 'Recent letters', 'A quick look at your latest submissions', 'Excuse letters', 'Your submissions and their current status.', 'My letters'],
     dean: ['Good morning, Dean.', 'Review requests and record decisions.', 'Needs your review', 'Pending requests are ready for a decision', 'Review letters', 'Review submissions and record a decision with an optional comment.', 'Review queue'],
     professor: ['Good morning, Professor.', 'Approved excuse letters for your classes.', 'Approved for your class', 'Approved requests assigned to you', 'Approved letters', 'Only Dean-approved letters assigned to your classes appear here.', 'Approved letters'],
-  }[role];
+  }[profileRole];
   const statuses = ['all', 'Pending', 'Approved', 'Disapproved'];
 
   return (
@@ -474,7 +617,7 @@ export default function App() {
           <div className="brand"><img className="brand-mark" src={logo} alt="University of the Assumption seal" /><div><div className="brand-name">University of the<br />Assumption</div><div className="brand-sub">Pampanga · Student Affairs</div></div></div>
           <div className="side-label">Workspace</div>
           <nav className="nav" aria-label="Main navigation">
-            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(role !== 'professor' ? [['history', 'HI', 'Letter history']] : [])].map(([key, icon, label]) => (
+            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(profileRole !== 'professor' ? [['history', 'HI', 'Letter history']] : [])].map(([key, icon, label]) => (
               <button className={screen === key || (screen === 'submit' && key === 'letters') ? 'active' : ''} data-screen={key} key={key} onClick={() => navigate(key)} type="button">
                 <span className="nav-icon">{icon}</span>{label}{key === 'letters' && <span className="nav-count">{pendingCount}</span>}
               </button>
@@ -485,12 +628,13 @@ export default function App() {
         <main>
           <header className="topbar">
             <div className="crumb">Student Affairs <span aria-hidden="true">/</span> <b>{({ dashboard: 'Overview', letters: roleCopy[4], history: 'Letter history', submit: 'New submission' })[screen]}</b></div>
-            <div className="top-actions"><div className="user-chip"><div className="avatar">{profile.initials}</div><div><div className="user-name">{profile.name}</div><div className="user-role">{profile.label}</div></div></div><button className="secondary" onClick={logout} type="button">Sign out</button></div>
+            <div className="top-actions"><div className="user-chip"><div className="avatar">{displayInitials}</div><div><div className="user-name">{displayName}</div><div className="user-role">{profileRole} profile</div></div></div><button className="secondary" onClick={logout} disabled={signingOut} type="button">{signingOut ? 'Signing out…' : 'Sign out'}</button></div>
           </header>
+          {authError && <p className="login-error auth-notice" role="alert">{authError}</p>}
           <div className="content">
             {screen === 'dashboard' && (
               <section className="screen active">
-                <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0]}</h1><p className="subtitle">{roleCopy[1]}</p></div>{role === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
+                <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
                 <div className="stats">
                   {[
                     ['Total letters', visibleLetters.length, 'Across your records', 'EL'],
@@ -500,13 +644,13 @@ export default function App() {
                   ].map(([label, value, note, mark]) => <div className="stat" key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
                 </div>
                 <div className="workspace">
-                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div>{role !== 'professor' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div>
-                    <LetterTable items={dashboardLetters.slice(0, 5)} mode="recent" role={role} onOpen={openLetter} emptyText="Nothing here yet. New letters will appear as they are submitted." />
+                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div>{profileRole !== 'professor' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div>
+                    <LetterTable items={dashboardLetters.slice(0, 5)} mode="recent" profileRole={profileRole} onOpen={openLetter} emptyText="Nothing here yet. New letters will appear as they are submitted." />
                   </section>
                   <aside className="right-col">
-                    <section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{role === 'student' && <button className="secondary" onClick={() => navigate('submit')} type="button">Start a letter &nbsp; →</button>}</section>
-                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} role={role} profile={profile} /></section>
-                    {role === 'dean' && <section className="panel assignment-panel"><div className="panel-head"><div><div className="panel-title">Professor assignments</div><div className="panel-kicker">Manage professor-to-course pairing</div></div></div>
+                    <section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{profileRole === 'student' && <button className="secondary" onClick={() => navigate('submit')} type="button">Start a letter &nbsp; →</button>}</section>
+                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} /></section>
+                    {profileRole === 'dean' && <section className="panel assignment-panel"><div className="panel-head"><div><div className="panel-title">Professor assignments</div><div className="panel-kicker">Manage professor-to-course pairing</div></div></div>
                       <div className="assignment-list">{assignments.map((item) => <div className="assignment-item" key={`${item.professor}-${item.course}`}><div><strong>{item.professor}</strong><small>{item.course}</small></div><span className="status approved">Assigned</span></div>)}</div>
                       <div className="assignment-form"><div className="row"><div className="field"><label htmlFor="assignment-professor">Professor</label><select id="assignment-professor" value={assignmentProfessor} onChange={(event) => setAssignmentProfessor(event.target.value)}>{professors.map((name) => <option key={name}>{name}</option>)}</select></div><div className="field"><label htmlFor="assignment-course">Course</label><select id="assignment-course" value={assignmentCourse} onChange={(event) => setAssignmentCourse(event.target.value)}>{courses.map((course) => <option key={course}>{course}</option>)}</select></div></div><button className="primary" onClick={saveAssignment} type="button">Assign professor</button></div>
                     </section>}
@@ -514,17 +658,17 @@ export default function App() {
                 </div>
               </section>
             )}
-            {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{role === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
+            {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
               <section className="panel"><div className="panel-head"><div><div className="panel-title">All letters</div><div className="panel-kicker">{sortedLetters.length} letter{sortedLetters.length === 1 ? '' : 's'} in this view</div></div><div className="table-tools"><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
-                <LetterTable items={allLetters} mode="all" role={role} onOpen={openLetter} emptyText="No letters match this view." />
+                <LetterTable items={allLetters} mode="all" profileRole={profileRole} onOpen={openLetter} emptyText="No letters match this view." />
               </section>
             </section>}
-            {screen === 'history' && role !== 'professor' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of submissions, decisions, and Dean comments.</p></div></div>
+            {screen === 'history' && profileRole !== 'professor' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of submissions, decisions, and Dean comments.</p></div></div>
               <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{sortedLetters.length} complete record{sortedLetters.length === 1 ? '' : 's'}</div></div><div className="table-tools"><input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
-                <LetterTable items={historyLetters} mode="history" role={role} onOpen={openLetter} emptyText="No letters to show yet." />
+                <LetterTable items={historyLetters} mode="history" profileRole={profileRole} onOpen={openLetter} emptyText="No letters to show yet." />
               </section>
             </section>}
-            {screen === 'submit' && role === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Complete the form as it should appear on your school excuse letter.</p></div></div>
+            {screen === 'submit' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Complete the form as it should appear on your school excuse letter.</p></div></div>
               <div className="letter-layout">
                 <form className="panel form-panel" onSubmit={handleSubmitLetter}>
                   <div className="form-section"><h2 className="section-title">Student information</h2><div className="form-grid">
@@ -561,7 +705,7 @@ export default function App() {
           {activeLetter.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
           <div className="qr-center"><QRCode letter={activeLetter} /></div>
           </div>
-          <div className="modal-actions">{role === 'dean' && activeLetter.status === 'Pending' ? <><div className="comment-field"><textarea aria-label="Optional comment for the student" placeholder="Optional comment for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></div><div className="action-right"><button className="danger" onClick={() => decideLetter('Disapproved')} type="button">Disapprove</button><button className="approve" onClick={() => decideLetter('Approved')} type="button">Approve</button></div></> : <><button className="secondary" onClick={() => setCurrentLetterId(null)} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></>}</div>
+          <div className="modal-actions">{profileRole === 'dean' && activeLetter.status === 'Pending' ? <><div className="comment-field"><textarea aria-label="Optional comment for the student" placeholder="Optional comment for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></div><div className="action-right"><button className="danger" onClick={() => decideLetter('Disapproved')} type="button">Disapprove</button><button className="approve" onClick={() => decideLetter('Approved')} type="button">Approve</button></div></> : <><button className="secondary" onClick={() => setCurrentLetterId(null)} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></>}</div>
         </div>}
       </div>
       <div className={`toast${toast ? ' show' : ''}`} role="status">{toast}</div>
@@ -580,12 +724,12 @@ function Evidence({ item }) {
   return <span>{item.name}</span>;
 }
 
-function Activity({ items, notifications, role, profile }) {
-  if (role === 'professor' || role === 'dean') {
-    const list = role === 'professor'
-      ? notifications.filter((item) => item.email === profile.email || item.user === profile.name).slice(0, 4)
+function Activity({ items, notifications, profileRole, email, displayName }) {
+  if (profileRole === 'professor' || profileRole === 'dean') {
+    const list = profileRole === 'professor'
+      ? notifications.filter((item) => item.email === email || item.user === displayName).slice(0, 4)
       : notifications.slice(0, 3);
-    return list.length ? <div className="notification-list">{list.map((item) => <div className="notification-item" key={item.id}><strong>{item.message}</strong><small>{role === 'dean' ? item.user : item.email || 'Email not set'} · {formatDate(item.createdAt)}</small></div>)}</div> : <div className="empty-state">No notifications yet.</div>;
+    return list.length ? <div className="notification-list">{list.map((item) => <div className="notification-item" key={item.id}><strong>{item.message}</strong><small>{profileRole === 'dean' ? item.user : item.email || 'Email not set'} · {formatDate(item.createdAt)}</small></div>)}</div> : <div className="empty-state">No notifications yet.</div>;
   }
   const recent = [...items].sort((a, b) => b.submitted.localeCompare(a.submitted)).slice(0, 3);
   return recent.length ? <div className="activity">{recent.map((letter) => <div className="activity-item" key={letter.id}><div className="activity-dot">{letter.status === 'Approved' ? '✓' : letter.status === 'Pending' ? '…' : '!'}</div><div><div className="activity-text"><strong>{letter.id}</strong> · {letter.studentName}<br />{letter.status}{letter.comment ? `: ${letter.comment}` : ''}</div><div className="activity-time">Submitted {formatDate(letter.submitted)}</div></div></div>)}</div> : <div className="empty-state">No recent activity.</div>;

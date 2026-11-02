@@ -26,15 +26,7 @@ npm run preview
 - Dean/Admin: `/dean.html` locally, `/dean` on Vercel. Review requests and record decisions.
 - Professor: `/professor.html` locally, `/professor` on Vercel. View approved letters assigned to their classes.
 
-The role pages are compatibility redirects into the React application. Demo accounts for this prototype are:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Student | `mika.student@udu.ph` | `UAstudent2026!` |
-| Dean/Admin | `amara.dean@udu.ph` | `UAdean2026!` |
-| Professor | `elena.prof@udu.ph` | `UAprof2026!` |
-
-These credentials are hard-coded in public JavaScript and are only a preview gate, not secure authentication. A user can inspect the source or browser storage. Demo records and evidence previews are stored in browser `localStorage`; the demo session is held in `sessionStorage`. Do not use real student information. Supabase Auth and database authorization have not been implemented.
+The role pages are compatibility redirects into the React application. They do not select a role or grant access. The current dashboards still use local sample data and are not connected Student, Dean, or Professor workflows. Letter, notification, assignment, and evidence-demo data remains in browser `localStorage`. Do not use real student information.
 
 ## Database foundation
 
@@ -42,14 +34,18 @@ These credentials are hard-coded in public JavaScript and are only a preview gat
 
 Before using real data, connect and test Supabase Auth, database queries, RLS authorization, and private Storage with separate student, professor, and Dean accounts. Confirm UA's official form, retention policy, encryption requirements, and approval authority before launch. The prototype only prepares local notification entries; it does not send email.
 
-## Supabase client configuration
+## Supabase client and authentication configuration
 
 The centralized browser client is in `src/lib/supabase.js`. Copy `.env.example` to `.env.local` and set:
 
-- `VITE_SUPABASE_URL`: the Supabase project URL.
+- `VITE_SUPABASE_URL`: the Supabase project base URL (not the `/rest/v1` API endpoint).
 - `VITE_SUPABASE_PUBLISHABLE_KEY`: the project's Supabase publishable key. This public key is intended for browser use; database access must be protected by RLS.
 
-Vite embeds variables prefixed with `VITE_` into browser code. Only use the Supabase publishable key here. Never put a secret key, legacy service-role key, password, or other server credential in a `VITE_` variable. The client is only configuration groundwork at this stage; authentication and database workflows are not implemented.
+Restart the Vite development server after changing environment variables. The login uses Supabase Auth email/password sign-in, and Supabase's client manages session persistence and refresh. The app checks the existing session at startup and responds to Auth state changes. No demo passwords are provided or accepted by the application.
+
+Vite embeds variables prefixed with `VITE_` into browser code. Only use the Supabase publishable key here. Never put a secret key, legacy service-role key, password, or other server credential in a `VITE_` variable.
+
+After Supabase Auth restores or establishes a session, the app looks up the matching `profiles` row by the authenticated user's UUID through the normal browser client and RLS. Only `student`, `professor`, and `dean` roles are accepted; a missing profile, unsupported role, or failed lookup blocks the dashboard. The profile role controls which existing prototype dashboard is displayed, but the prototype's letter, notification, assignment, and evidence data remains local and is not an authorized database workflow. Do not use real student information until those workflows are implemented and tested.
 
 ## Vercel deployment
 

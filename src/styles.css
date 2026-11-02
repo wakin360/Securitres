@@ -193,6 +193,12 @@ tbody tr:hover { background: #fbfcfa; }
 .login-card .field input { padding: 12px; font-size: 12px; }
 .login-submit { width: 100%; margin-top: 5px; padding: 12px; }
 .login-error { min-height: 18px; margin: 11px 0 0 !important; color: #a54836; font-size: 10px !important; }
+.login-card .field label span { color: var(--muted); font-weight: 400; }
+.login-card .field-hint { margin: -5px 0 8px; }
+.login-card button:disabled { cursor: not-allowed; opacity: .65; }
+.auth-loading { min-height: 100vh; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+.auth-retry { margin-top: 10px; }
+.auth-notice { margin: 12px 38px 0 !important; padding: 10px; border: 1px solid #e4b1a5; border-radius: 5px; background: #fae8ea; }
 .demo-access { margin-top: 21px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.6; }
 .demo-access summary { color: var(--forest); font-size: 10px; font-weight: 700; cursor: pointer; }
 .demo-accounts { display: grid; gap: 7px; margin-top: 9px; }
