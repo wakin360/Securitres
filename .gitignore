@@ -6,6 +6,10 @@
 # Vercel local metadata
 .vercel
 
+# Node and Vite outputs
+node_modules/
+dist/
+
 # Supabase CLI local state
 supabase/.temp
 

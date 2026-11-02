@@ -1,16 +1,24 @@
 # UA Digital Excuse Letter System
 
-A static workflow prototype for the University of the Assumption. Its navy, red, and gold identity and locally served seal are based on the official UA site.
+A React/Vite workflow prototype for the University of the Assumption. It retains the prototype's navy, red, and gold identity, responsive dashboards, student submission form, Dean review flow, professor view, and locally served university seal.
 
 ## Run locally
 
-From the project folder in PowerShell:
+Install Node.js and npm, then run these commands from the project folder:
 
 ```powershell
-py -m http.server 8000
+npm install
+npm run dev
 ```
 
-Open `http://localhost:8000`. Stop the server with `Ctrl+C`.
+Open the local URL printed by Vite (normally `http://localhost:5173`). Stop the development server with `Ctrl+C`.
+
+Create and preview a production build with:
+
+```powershell
+npm run build
+npm run preview
+```
 
 ## Role pages
 
@@ -18,7 +26,7 @@ Open `http://localhost:8000`. Stop the server with `Ctrl+C`.
 - Dean/Admin: `/dean.html` locally, `/dean` on Vercel. Review requests and record decisions.
 - Professor: `/professor.html` locally, `/professor` on Vercel. View approved letters assigned to their classes.
 
-The login screen opens first. Demo accounts for this prototype are:
+The role pages are compatibility redirects into the React application. Demo accounts for this prototype are:
 
 | Role | Email | Password |
 | --- | --- | --- |
@@ -26,16 +34,16 @@ The login screen opens first. Demo accounts for this prototype are:
 | Dean/Admin | `amara.dean@udu.ph` | `UAdean2026!` |
 | Professor | `elena.prof@udu.ph` | `UAprof2026!` |
 
-These credentials are hard-coded in the public JavaScript and are only a preview gate, not secure authentication. A user can inspect the source or browser storage. Demo data is stored in browser `localStorage`. Do not use real student information until the login is replaced with Supabase Auth and authorization is enforced by the database policies.
+These credentials are hard-coded in public JavaScript and are only a preview gate, not secure authentication. A user can inspect the source or browser storage. Demo records and evidence previews are stored in browser `localStorage`; the demo session is held in `sessionStorage`. Do not use real student information. Supabase Auth and database authorization have not been implemented.
 
 ## Database foundation
 
-`supabase/migrations/20261019000000_initial_schema.sql` defines profiles and roles, course offerings and enrollments, excuse letters, evidence metadata, decision history, and row-level security policies. It also creates a private `excuse-evidence` storage bucket with file type and size restrictions. New Auth users receive a student profile by default; only a trusted administrator should provision Dean and professor roles.
+`supabase/migrations/20261019000000_initial_schema.sql` defines profiles and roles, course offerings and enrollments, excuse letters, evidence metadata, decision history, and row-level security policies. It also creates a private `excuse-evidence` storage bucket with file type and size restrictions. The React prototype is not connected to Supabase. Do not treat the migration or client-side demo role checks as production security.
 
-The UI is not connected to Supabase yet. Apply and test the migration in a Supabase project, connect the frontend to Supabase Auth and database queries, upload evidence to private Storage, and test with separate student, professor, and Dean accounts before using real data. Confirm UA's official form, retention policy, encryption requirements, and approval authority before launch. The demo image previews remain in browser storage; the database migration describes the intended private storage path.
+Before using real data, connect and test Supabase Auth, database queries, RLS authorization, and private Storage with separate student, professor, and Dean accounts. Confirm UA's official form, retention policy, encryption requirements, and approval authority before launch. The prototype only prepares local notification entries; it does not send email.
 
 ## Vercel deployment
 
-The app is static and needs no build command or output directory. Import this repository in Vercel using the project root; `vercel.json` defines clean role URLs and baseline security headers. This deploys the workflow demo, not production access control.
+Import this repository in Vercel using the project root. Use `npm run build` as the build command and `dist` as the output directory. `vite.config.js` includes the role redirect pages in the build, and `vercel.json` retains the clean role URLs and baseline security headers. This deploys the workflow demo, not production access control.
 
-When Supabase is connected, configure the public project URL and anon key in Vercel's frontend environment variables. Never put a Supabase service-role key in browser code or frontend environment variables.
+When Supabase is connected in a future phase, configure the public project URL and anon key in Vercel's frontend environment variables. Never put a Supabase service-role key in browser code or frontend environment variables.
