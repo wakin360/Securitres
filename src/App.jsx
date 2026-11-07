@@ -3,7 +3,8 @@ import logo from '../ua-logo.png';
 import { getSupabaseClient, isSupabaseConfigured } from './lib/supabase.js';
 import { getProfileForUser, profileRoles } from './services/profile.js';
 import {
-  createStudentLetter,
+  StudentLetterSubmissionError,
+  createStudentLetterWithEvidence,
   getStudentCourses,
   getStudentLetterDetails,
   getStudentLetters,
@@ -15,42 +16,25 @@ import {
   uploadStudentEvidence,
   validateEvidenceFile,
 } from './services/studentEvidence.js';
+import {
+  getDeanEvidenceSignedUrl,
+  getDeanLetterDetails,
+  getDeanPendingLetters,
+  submitDeanDecision,
+} from './services/deanReview.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
   notifications: 'ua-notifications-v1',
-  assignments: 'ua-professor-assignments-v1',
 };
 
-const professors = [
-  'Prof. Elena Cruz',
-  'Prof. Mark Anthony Santos',
-  'Prof. Maria Reyes',
-  'Prof. Daniel Ramos',
-  'Prof. Jenny Flores',
-];
-
-const courses = [
-  'Data Structures',
-  'Discrete Mathematics',
-  'Cost Accounting',
-  'General Psychology',
-  'Introduction to Computing',
-  'Systems Analysis',
-];
+const studentProgramMissingMessage = 'Your academic program is not assigned yet. Contact Student Affairs to complete your account setup.';
 
 const seedLetters = [
   { id: 'UA-2026-0418', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Data Structures', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-15', dateTo: '2026-10-15', reason: 'I was unable to attend class due to a medical consultation.', evidence: ['clinic-visit.pdf'], submitted: '2026-10-16', status: 'Pending', comment: '' },
   { id: 'UA-2026-0412', studentName: 'Jonah Reyes', studentNumber: '2023-00719', program: 'BS Accountancy, 3rd year', email: 'jonah.reyes@ua.edu', course: 'Cost Accounting', professor: 'Prof. Mark Anthony Santos', parentContact: '0922-654-1122', dateFrom: '2026-10-12', dateTo: '2026-10-12', reason: 'Family emergency required me to travel home.', evidence: ['supporting-note.jpg'], submitted: '2026-10-13', status: 'Approved', comment: 'Approved. Please coordinate any missed assessment with your professor.' },
   { id: 'UA-2026-0398', studentName: 'Aira Villanueva', studentNumber: '2025-02103', program: 'BS Psychology, 1st year', email: 'aira.v@ua.edu', course: 'General Psychology', professor: 'Prof. Jenny Flores', parentContact: '0933-889-1020', dateFrom: '2026-10-08', dateTo: '2026-10-09', reason: 'I was recovering from a fever and was advised to rest.', evidence: ['medical-certificate.pdf'], submitted: '2026-10-10', status: 'Disapproved', comment: 'Please attach a readable copy of the supporting document and resubmit.' },
   { id: 'UA-2026-0381', studentName: 'Mika Santos', studentNumber: '2024-01842', program: 'BS Information Technology, 2nd year', email: 'mika.santos@ua.edu', course: 'Discrete Mathematics', professor: 'Prof. Elena Cruz', parentContact: '0917-123-4567', dateFrom: '2026-10-02', dateTo: '2026-10-02', reason: 'I had a scheduled medical appointment.', evidence: ['appointment-slip.png'], submitted: '2026-10-03', status: 'Approved', comment: 'Approved. Thank you for providing supporting evidence.' },
-];
-
-const seedAssignments = [
-  { professor: 'Prof. Elena Cruz', course: 'Data Structures' },
-  { professor: 'Prof. Elena Cruz', course: 'Discrete Mathematics' },
-  { professor: 'Prof. Mark Anthony Santos', course: 'Cost Accounting' },
-  { professor: 'Prof. Jenny Flores', course: 'General Psychology' },
 ];
 
 const seedNotifications = [
@@ -134,8 +118,31 @@ function toStudentLetterView(letter, profile, authUser) {
   };
 }
 
+function toDeanLetterView(letter) {
+  const course = letter.course;
+  const student = letter.student;
+  const professor = course?.professor;
+  return {
+    id: letter.id,
+    studentName: student?.full_name || 'Student profile unavailable',
+    studentNumber: student?.student_number || 'Not provided',
+    program: student?.program || 'Not provided',
+    course: course
+      ? `${course.course_code} · ${course.course_name}${course.section ? ` (${course.section})` : ''}`
+      : 'Course unavailable',
+    professor: professor?.full_name || 'Not assigned',
+    dateFrom: letter.absence_start,
+    dateTo: letter.absence_end,
+    reason: letter.reason,
+    submitted: letter.submitted_at,
+    status: letter.status.charAt(0).toUpperCase() + letter.status.slice(1),
+    comment: letter.dean_comment || '',
+  };
+}
+
 function studentDataFailureMessage(error) {
   if (import.meta.env.DEV) console.error('Student excuse-letter request failed.', error);
+  if (error instanceof StudentLetterSubmissionError) return error.message;
   if (error instanceof EvidenceUploadError) return error.message;
   if (error?.code === '42501' || error?.code === 'PGRST301') {
     return 'You do not have permission to access this student data. Refresh your session or contact support.';
@@ -147,6 +154,20 @@ function studentDataFailureMessage(error) {
     return 'Could not reach the student services database. Check your connection and try again.';
   }
   return 'Could not load or save student records. Please try again.';
+}
+
+function reviewDataFailureMessage(error) {
+  if (import.meta.env.DEV) console.error('Dean review request failed.', error);
+  if (error?.code === '42501' || error?.code === 'PGRST301') {
+    return 'You do not have permission to review this letter. Refresh your session or contact support.';
+  }
+  if (error?.code === 'P0001') {
+    return 'This letter has already been decided or is no longer available for review. Refresh the pending queue.';
+  }
+  if (error instanceof TypeError || error?.name === 'AuthRetryableFetchError') {
+    return 'Could not reach the review service. Check your connection and try again.';
+  }
+  return 'Could not load or save this review. Please try again.';
 }
 
 function initials(name) {
@@ -292,6 +313,10 @@ export default function App() {
   const [studentRefreshVersion, setStudentRefreshVersion] = useState(0);
   const [studentSubmitting, setStudentSubmitting] = useState(false);
   const [studentSubmitError, setStudentSubmitError] = useState('');
+  const [studentSubmissionNotice, setStudentSubmissionNotice] = useState('');
+  const [studentSubmissionFiles, setStudentSubmissionFiles] = useState([]);
+  const [studentSubmissionFileError, setStudentSubmissionFileError] = useState('');
+  const [studentSubmitProgress, setStudentSubmitProgress] = useState('');
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailStatus, setStudentDetailStatus] = useState('idle');
   const [studentDetailError, setStudentDetailError] = useState('');
@@ -304,14 +329,25 @@ export default function App() {
   const [studentEvidenceSuccess, setStudentEvidenceSuccess] = useState('');
   const [studentEvidenceLinks, setStudentEvidenceLinks] = useState({});
   const [studentEvidenceLinkLoading, setStudentEvidenceLinkLoading] = useState('');
+  const [deanLetters, setDeanLetters] = useState([]);
+  const [deanLettersStatus, setDeanLettersStatus] = useState('idle');
+  const [deanLettersError, setDeanLettersError] = useState('');
+  const [deanRefreshVersion, setDeanRefreshVersion] = useState(0);
+  const [deanDetail, setDeanDetail] = useState(null);
+  const [deanDetailStatus, setDeanDetailStatus] = useState('idle');
+  const [deanDetailError, setDeanDetailError] = useState('');
+  const [deanEvidenceLinks, setDeanEvidenceLinks] = useState({});
+  const [deanEvidenceLinkLoading, setDeanEvidenceLinkLoading] = useState('');
+  const [deanDecisionBusy, setDeanDecisionBusy] = useState(false);
+  const [deanDecisionError, setDeanDecisionError] = useState('');
+  const [deanDecisionSuccess, setDeanDecisionSuccess] = useState('');
   const [authStatus, setAuthStatus] = useState('checking-session');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authCheckVersion, setAuthCheckVersion] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const [letters, setLetters] = useState(() => readStored(STORAGE_KEYS.letters, seedLetters));
-  const [notifications, setNotifications] = useState(() => readStored(STORAGE_KEYS.notifications, seedNotifications));
-  const [assignments, setAssignments] = useState(() => readStored(STORAGE_KEYS.assignments, seedAssignments));
+  const [notifications] = useState(() => readStored(STORAGE_KEYS.notifications, seedNotifications));
   const [screen, setScreen] = useState('dashboard');
   const [currentLetterId, setCurrentLetterId] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
@@ -320,17 +356,19 @@ export default function App() {
   const [filter, setFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
   const [historyFilter, setHistoryFilter] = useState('all');
-  const [assignmentProfessor, setAssignmentProfessor] = useState(professors[0]);
-  const [assignmentCourse, setAssignmentCourse] = useState(courses[0]);
   const toastTimer = useRef(null);
   const authResolutionId = useRef(0);
   const studentDetailRequestId = useRef(0);
   const studentEvidenceRequestId = useRef(0);
+  const deanDetailRequestId = useRef(0);
+  const deanEvidenceRequestId = useRef(0);
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
   const visibleLetters = profileRole === 'student'
     ? studentLetters.map((letter) => toStudentLetterView(letter, profile, authUser))
-    : profileRole === 'professor'
+    : profileRole === 'dean'
+      ? deanLetters.map(toDeanLetterView)
+      : profileRole === 'professor'
       ? letters.filter((letter) => letter.status === 'Approved' && letter.professor === 'Prof. Elena Cruz')
       : letters;
 
@@ -470,6 +508,33 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    if (profileRole !== 'dean') {
+      setDeanLetters([]);
+      setDeanLettersStatus('idle');
+      setDeanLettersError('');
+      return () => { active = false; };
+    }
+
+    setDeanLettersStatus('loading');
+    setDeanLettersError('');
+    getDeanPendingLetters()
+      .then((pendingLetters) => {
+        if (!active) return;
+        setDeanLetters(pendingLetters);
+        setDeanLettersStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setDeanLetters([]);
+        setDeanLettersError(reviewDataFailureMessage(error));
+        setDeanLettersStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [profileRole, deanRefreshVersion]);
+
+  useEffect(() => {
+    let active = true;
     const requestId = ++studentEvidenceRequestId.current;
     if (profileRole !== 'student' || !studentDetail?.id) {
       setStudentEvidence([]);
@@ -529,12 +594,8 @@ export default function App() {
     return false;
   }
 
-  function changeNotifications(next) {
-    if (persist(STORAGE_KEYS.notifications, next, 'Could not save the notification.')) setNotifications(next);
-  }
-
   function navigate(nextScreen) {
-    if (nextScreen === 'submit' && profileRole !== 'student') return;
+    if (nextScreen === 'submit' && (profileRole !== 'student' || !profile?.program_id)) return;
     setScreen(nextScreen);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -612,6 +673,34 @@ export default function App() {
   async function openLetter(id) {
     setCurrentLetterId(id);
     setDecisionComment('');
+    if (profileRole === 'dean') {
+      const requestId = ++deanDetailRequestId.current;
+      deanEvidenceRequestId.current += 1;
+      setDeanDetail(null);
+      setDeanDetailError('');
+      setDeanDetailStatus('loading');
+      setDeanEvidenceLinks({});
+      setDeanEvidenceLinkLoading('');
+      setDeanDecisionError('');
+      setDeanDecisionSuccess('');
+      try {
+        const detail = await getDeanLetterDetails(id);
+        if (requestId !== deanDetailRequestId.current) return;
+        if (!detail) {
+          setDeanDetailError('This letter could not be found or is no longer available.');
+          setDeanDetailStatus('error');
+          return;
+        }
+        setDeanDetail(detail);
+        setDeanDetailStatus('ready');
+      } catch (error) {
+        if (requestId !== deanDetailRequestId.current) return;
+        setDeanDetailError(reviewDataFailureMessage(error));
+        setDeanDetailStatus('error');
+      }
+      return;
+    }
+
     if (profileRole !== 'student') return;
 
     const requestId = ++studentDetailRequestId.current;
@@ -638,6 +727,8 @@ export default function App() {
   function closeLetter() {
     studentDetailRequestId.current += 1;
     studentEvidenceRequestId.current += 1;
+    deanDetailRequestId.current += 1;
+    deanEvidenceRequestId.current += 1;
     setCurrentLetterId(null);
     setStudentDetail(null);
     setStudentDetailError('');
@@ -649,6 +740,70 @@ export default function App() {
     setStudentEvidenceFileError('');
     setStudentEvidenceSuccess('');
     setStudentEvidenceLinks({});
+    setDeanDetail(null);
+    setDeanDetailStatus('idle');
+    setDeanDetailError('');
+    setDeanEvidenceLinks({});
+    setDeanEvidenceLinkLoading('');
+    setDeanDecisionBusy(false);
+    setDeanDecisionError('');
+    setDeanDecisionSuccess('');
+  }
+
+  async function prepareDeanEvidenceLink(evidenceId) {
+    const requestId = deanEvidenceRequestId.current;
+    setDeanEvidenceLinkLoading(evidenceId);
+    setDeanDetailError('');
+    try {
+      const signedUrl = await getDeanEvidenceSignedUrl(evidenceId);
+      if (requestId !== deanEvidenceRequestId.current) return;
+      setDeanEvidenceLinks((current) => ({ ...current, [evidenceId]: signedUrl }));
+    } catch (error) {
+      if (requestId !== deanEvidenceRequestId.current) return;
+      setDeanDetailError(reviewDataFailureMessage(error));
+    } finally {
+      if (requestId === deanEvidenceRequestId.current) setDeanEvidenceLinkLoading('');
+    }
+  }
+
+  async function decideDeanLetter(decision) {
+    if (profileRole !== 'dean' || deanDetail?.status !== 'pending' || deanDecisionBusy) return;
+    const label = decision === 'approved' ? 'approve' : 'disapprove';
+    if (!window.confirm(`Confirm that you want to ${label} this excuse letter? This decision cannot be changed.`)) return;
+
+    const letterId = deanDetail.id;
+    const requestId = deanDetailRequestId.current;
+    setDeanDecisionBusy(true);
+    setDeanDecisionError('');
+    setDeanDecisionSuccess('');
+    try {
+      const result = await submitDeanDecision({
+        letterId,
+        decision,
+        comment: decisionComment,
+      });
+      setDeanDetail((current) => current && current.id === letterId
+        ? { ...current, ...result }
+        : current);
+      setDeanDecisionSuccess(`Letter ${decision}. The decision has been recorded.`);
+      setDeanRefreshVersion((version) => version + 1);
+      showToast(`Letter ${decision}.`);
+
+      try {
+        const refreshedDetail = await getDeanLetterDetails(letterId);
+        if (requestId === deanDetailRequestId.current && refreshedDetail) {
+          setDeanDetail(refreshedDetail);
+        }
+      } catch (refreshError) {
+        if (requestId === deanDetailRequestId.current) {
+          setDeanDetailError(`The decision was saved, but the latest details could not be refreshed. ${reviewDataFailureMessage(refreshError)}`);
+        }
+      }
+    } catch (error) {
+      setDeanDecisionError(reviewDataFailureMessage(error));
+    } finally {
+      setDeanDecisionBusy(false);
+    }
   }
 
   function selectStudentEvidence(event) {
@@ -657,6 +812,34 @@ export default function App() {
     setStudentEvidenceSuccess('');
     setStudentEvidenceFileError(file ? validateEvidenceFile(file) : '');
     setStudentEvidenceFile(file);
+  }
+
+  function selectSubmissionEvidence(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    const validationErrors = files
+      .map((file) => {
+        const error = validateEvidenceFile(file);
+        return error ? `${file.name}: ${error}` : '';
+      })
+      .filter(Boolean);
+
+    setStudentSubmissionFiles(files);
+    setStudentSubmissionFileError(validationErrors.join(' '));
+    setStudentSubmitError('');
+    setStudentSubmissionNotice('');
+  }
+
+  function removeSubmissionEvidence(indexToRemove) {
+    const remainingFiles = studentSubmissionFiles.filter((_, index) => index !== indexToRemove);
+    const validationErrors = remainingFiles
+      .map((file) => {
+        const error = validateEvidenceFile(file);
+        return error ? `${file.name}: ${error}` : '';
+      })
+      .filter(Boolean);
+    setStudentSubmissionFiles(remainingFiles);
+    setStudentSubmissionFileError(validationErrors.join(' '));
   }
 
   async function submitStudentEvidence(event) {
@@ -730,42 +913,13 @@ export default function App() {
     }
   }
 
-  function decideLetter(status) {
-    if (profileRole !== 'dean' || !['Approved', 'Disapproved'].includes(status)) return;
-    const letter = letters.find((item) => item.id === currentLetterId && item.status === 'Pending');
-    if (!letter) return;
-    const decidedLetter = { ...letter, status, comment: decisionComment.trim() };
-    const nextLetters = letters.map((item) => item.id === letter.id ? decidedLetter : item);
-    if (!changeLetters(nextLetters)) return;
-    const nextNotifications = [
-      ...(status === 'Approved' ? [{
-        id: crypto.randomUUID(),
-        user: letter.professor,
-        role: 'professor',
-        email: letter.professor === 'Prof. Elena Cruz' ? 'elena.prof@udu.ph' : 'assigned.professor@udu.ph',
-        message: `Approved excuse letter ${letter.id} is ready for ${letter.studentName}.`,
-        createdAt: new Date().toISOString().slice(0, 10),
-      }] : []),
-      {
-        id: crypto.randomUUID(),
-        user: letter.studentName,
-        role: 'student',
-        email: letter.email || 'student@udu.ph',
-        message: status === 'Approved'
-          ? `Your excuse letter ${letter.id} was approved by the Dean.`
-          : `Your excuse letter ${letter.id} was disapproved. Please review the Dean's notes.`,
-        createdAt: new Date().toISOString().slice(0, 10),
-      },
-      ...notifications,
-    ];
-    changeNotifications(nextNotifications);
-    setCurrentLetterId(null);
-    showToast(`Letter ${letter.id} ${status.toLowerCase()}. Email notifications were prepared for the student and professor.`);
-  }
-
   async function handleSubmitLetter(event) {
     event.preventDefault();
     if (profileRole !== 'student' || !authUser?.id || studentSubmitting) return;
+    if (!profile?.program_id) {
+      setStudentSubmitError(studentProgramMissingMessage);
+      return;
+    }
     const form = event.currentTarget;
     const data = new FormData(event.currentTarget);
     const courseId = String(data.get('courseId') || '');
@@ -773,6 +927,8 @@ export default function App() {
     const absenceEnd = String(data.get('absenceEnd') || '');
     const reason = String(data.get('reason') || '').trim();
     setStudentSubmitError('');
+    setStudentSubmissionNotice('');
+    setStudentSubmitProgress('');
 
     if (!studentCourses.some((course) => course.id === courseId)) {
       setStudentSubmitError('Select a course in which you are enrolled.');
@@ -790,36 +946,58 @@ export default function App() {
       setStudentSubmitError('Your enrolled courses are not ready. Refresh them and try again.');
       return;
     }
+    const validationErrors = studentSubmissionFiles
+      .map((file) => {
+        const error = validateEvidenceFile(file);
+        return error ? `${file.name}: ${error}` : '';
+      })
+      .filter(Boolean);
+    if (validationErrors.length) {
+      setStudentSubmissionFileError(validationErrors.join(' '));
+      return;
+    }
 
     setStudentSubmitting(true);
+    setStudentSubmitProgress('Creating your excuse letter…');
     try {
-      const createdLetter = await createStudentLetter({
+      const createdLetter = await createStudentLetterWithEvidence({
         studentId: authUser.id,
+        programId: profile.program_id,
         courseId,
         absenceStart,
         absenceEnd,
         reason,
         enrolledCourses: studentCourses,
+        evidenceFiles: studentSubmissionFiles,
+        onEvidenceProgress: (current, total) => {
+          setStudentSubmitProgress(`Uploading evidence ${current} of ${total}…`);
+        },
       });
       setStudentLetters((current) => [createdLetter, ...current]);
       setStudentLettersStatus('ready');
       form.reset();
+      setStudentSubmissionFiles([]);
+      setStudentSubmissionFileError('');
+      setStudentSubmitProgress('');
       navigate('letters');
-      showToast('Your excuse letter was submitted for review.');
+      showToast(studentSubmissionFiles.length
+        ? 'Your excuse letter and evidence were submitted for review.'
+        : 'Your excuse letter was submitted for review.');
     } catch (error) {
+      if (error instanceof StudentLetterSubmissionError) {
+        setStudentLetters((current) => [error.letter, ...current.filter((letter) => letter.id !== error.letter.id)]);
+        setStudentLettersStatus('ready');
+        setStudentSubmissionNotice(error.message);
+        form.reset();
+        setStudentSubmissionFiles([]);
+        setStudentSubmissionFileError('');
+        navigate('letters');
+        return;
+      }
       setStudentSubmitError(studentDataFailureMessage(error));
     } finally {
       setStudentSubmitting(false);
-    }
-  }
-
-  function saveAssignment() {
-    if (!assignmentProfessor || !assignmentCourse) return;
-    if (assignments.some((item) => item.professor === assignmentProfessor && item.course === assignmentCourse)) return;
-    const next = [{ professor: assignmentProfessor, course: assignmentCourse }, ...assignments];
-    if (persist(STORAGE_KEYS.assignments, next, 'Could not save the professor assignment.')) {
-      setAssignments(next);
-      showToast(`${assignmentProfessor} assigned to ${assignmentCourse}.`);
+      setStudentSubmitProgress('');
     }
   }
 
@@ -827,16 +1005,21 @@ export default function App() {
   const dashboardLetters = profileRole === 'dean' ? sortedLetters.filter((letter) => letter.status === 'Pending') : sortedLetters;
   const matches = (letter, text, status) => (!text || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(text.toLowerCase()))
     && (status === 'all' || letter.status.toLowerCase() === status.toLowerCase());
-  const allLetters = sortedLetters.filter((letter) => matches(letter, search, filter));
+  const allLetters = sortedLetters.filter((letter) => profileRole === 'dean'
+    ? (!search || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(search.toLowerCase()))
+    : matches(letter, search, filter));
   const historyLetters = sortedLetters.filter((letter) => matches(letter, historySearch, historyFilter));
   const pendingCount = profileRole === 'dean'
-    ? letters.filter((letter) => letter.status === 'Pending').length
+    ? deanLetters.length
     : profileRole === 'professor' ? visibleLetters.length : visibleLetters.filter((letter) => letter.status === 'Pending').length;
   const activeLetter = profileRole === 'student'
     ? studentDetail && toStudentLetterView(studentDetail, profile, authUser)
-    : letters.find((letter) => letter.id === currentLetterId);
+    : profileRole === 'dean'
+      ? deanDetail && toDeanLetterView(deanDetail)
+      : letters.find((letter) => letter.id === currentLetterId);
   const studentDetailOpen = profileRole === 'student' && Boolean(currentLetterId);
-  const modalOpen = studentDetailOpen || Boolean(activeLetter);
+  const deanDetailOpen = profileRole === 'dean' && Boolean(currentLetterId);
+  const modalOpen = studentDetailOpen || deanDetailOpen || Boolean(activeLetter);
 
   if (authStatus === 'checking-session' || authStatus === 'loading-profile') {
     return <main className="auth-loading" role="status">{authStatus === 'loading-profile' ? 'Loading your account profile…' : 'Checking your sign-in session…'}</main>;
@@ -904,7 +1087,7 @@ export default function App() {
           <div className="brand"><img className="brand-mark" src={logo} alt="University of the Assumption seal" /><div><div className="brand-name">University of the<br />Assumption</div><div className="brand-sub">Pampanga · Student Affairs</div></div></div>
           <div className="side-label">Workspace</div>
           <nav className="nav" aria-label="Main navigation">
-            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(profileRole !== 'professor' ? [['history', 'HI', 'Letter history']] : [])].map(([key, icon, label]) => (
+            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(profileRole === 'student' ? [['history', 'HI', 'Letter history']] : [])].map(([key, icon, label]) => (
               <button className={screen === key || (screen === 'submit' && key === 'letters') ? 'active' : ''} data-screen={key} key={key} onClick={() => navigate(key)} type="button">
                 <span className="nav-icon">{icon}</span>{label}{key === 'letters' && <span className="nav-count">{pendingCount}</span>}
               </button>
@@ -919,45 +1102,52 @@ export default function App() {
           </header>
           {authError && <p className="login-error auth-notice" role="alert">{authError}</p>}
           <div className="content">
+            {profileRole === 'student' && !profile?.program_id && <p className="student-program-warning" role="alert">{studentProgramMissingMessage}</p>}
             {screen === 'dashboard' && (
               <section className="screen active">
-                <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
+                <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">+ &nbsp; New excuse letter</button>}</div>
                 <div className="stats">
-                  {[
+                  {(profileRole === 'dean' ? [
+                    ['Pending letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : deanLetters.length, 'Awaiting your review', 'EL'],
+                    ['Decision control', 'Secure', 'Database-authorized', '✓'],
+                    ['Evidence', 'Private', 'Temporary access links', 'PDF'],
+                    ['Audit history', 'On', 'Status changes recorded', 'H'],
+                  ] : [
                     ['Total letters', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.length, 'Across your records', 'EL'],
                     ['Awaiting review', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Pending').length, 'In the Dean’s queue', '…'],
                     ['Approved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Approved').length, 'Ready to view', 'OK'],
                     ['Disapproved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Disapproved').length, 'See Dean comments', 'NO'],
-                  ].map(([label, value, note, mark]) => <div className="stat" key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
+                  ]).map(([label, value, note, mark]) => <div className="stat" key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
                 </div>
                 <div className="workspace">
-                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'professor' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div></div>
+                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'student' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div></div>
+                    {profileRole === 'dean' && deanLettersError && <p className="student-data-error" role="alert">{deanLettersError}</p>}
                     <LetterTable
                       items={dashboardLetters.slice(0, 5)}
-                      mode={profileRole === 'student' ? 'student' : 'recent'}
+                      mode={profileRole === 'student' ? 'student' : profileRole === 'dean' ? 'dean' : 'recent'}
                       profileRole={profileRole}
                       onOpen={openLetter}
-                      emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters submitted yet.' : 'Nothing here yet. New letters will appear as they are submitted.'}
+                      emptyText={profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading pending letters…' : deanLettersStatus === 'error' ? 'Pending letters could not be loaded.' : 'There are no pending excuse letters to review.' : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters submitted yet.' : 'Nothing here yet. New letters will appear as they are submitted.'}
                     />
                   </section>
                   <aside className="right-col">
-                    <section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{profileRole === 'student' && <button className="secondary" onClick={() => navigate('submit')} type="button">Start a letter &nbsp; →</button>}</section>
-                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} loading={studentLettersStatus === 'loading'} error={profileRole === 'student' ? studentLettersError : ''} /></section>
-                    {profileRole === 'dean' && <section className="panel assignment-panel"><div className="panel-head"><div><div className="panel-title">Professor assignments</div><div className="panel-kicker">Manage professor-to-course pairing</div></div></div>
-                      <div className="assignment-list">{assignments.map((item) => <div className="assignment-item" key={`${item.professor}-${item.course}`}><div><strong>{item.professor}</strong><small>{item.course}</small></div><span className="status approved">Assigned</span></div>)}</div>
-                      <div className="assignment-form"><div className="row"><div className="field"><label htmlFor="assignment-professor">Professor</label><select id="assignment-professor" value={assignmentProfessor} onChange={(event) => setAssignmentProfessor(event.target.value)}>{professors.map((name) => <option key={name}>{name}</option>)}</select></div><div className="field"><label htmlFor="assignment-course">Course</label><select id="assignment-course" value={assignmentCourse} onChange={(event) => setAssignmentCourse(event.target.value)}>{courses.map((course) => <option key={course}>{course}</option>)}</select></div></div><button className="primary" onClick={saveAssignment} type="button">Assign professor</button></div>
-                    </section>}
+                    {profileRole === 'dean'
+                      ? <section className="notice"><div className="notice-title">Secure letter review</div><p>Open a pending submission to review its details and private evidence. Your decision is recorded in the status history.</p></section>
+                      : <><section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{profileRole === 'student' && <button className="secondary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">Start a letter &nbsp; →</button>}</section>
+                        <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} loading={studentLettersStatus === 'loading'} error={profileRole === 'student' ? studentLettersError : ''} /></section></>}
                   </aside>
                 </div>
               </section>
             )}
-            {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} type="button">+ &nbsp; New excuse letter</button>}</div>
-              <section className="panel"><div className="panel-head"><div><div className="panel-title">All letters</div><div className="panel-kicker">{profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
+            {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">+ &nbsp; New excuse letter</button>}</div>
+              <section className="panel"><div className="panel-head"><div><div className="panel-title">{profileRole === 'dean' ? 'Pending letters' : 'All letters'}</div><div className="panel-kicker">{profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading the review queue…' : `${deanLetters.length} pending letter${deanLetters.length === 1 ? '' : 's'}` : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'dean' && <><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></>}</div></div>
+                {profileRole === 'student' && studentSubmissionNotice && <p className="student-data-error" role="alert">{studentSubmissionNotice}</p>}
                 {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
-                <LetterTable items={allLetters} mode={profileRole === 'student' ? 'student' : 'all'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters match this view.' : 'No letters match this view.'} />
+                {profileRole === 'dean' && deanLettersError && <p className="student-data-error" role="alert">{deanLettersError}</p>}
+                <LetterTable items={allLetters} mode={profileRole === 'student' ? 'student' : 'all'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading pending letters…' : deanLettersStatus === 'error' ? 'Pending letters could not be loaded.' : 'There are no pending excuse letters to review.' : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters match this view.' : 'No letters match this view.'} />
               </section>
             </section>}
-            {screen === 'history' && profileRole !== 'professor' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of your submissions and any recorded status changes.</p></div></div>
+            {screen === 'history' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of your submissions and any recorded status changes.</p></div></div>
               <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} complete record${sortedLetters.length === 1 ? '' : 's'}`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
                 {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
                 <LetterTable items={historyLetters} mode={profileRole === 'student' ? 'student' : 'history'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : 'No letters to show yet.'} />
@@ -968,16 +1158,31 @@ export default function App() {
                 <form className="panel form-panel" onSubmit={handleSubmitLetter}>
                   <div className="form-section"><h2 className="section-title">Student account</h2><p className="form-account">{profile?.full_name || authUser.email}{profile?.student_number ? ` · ${profile.student_number}` : ''}</p><p className="field-hint">Your signed-in account is used as the owner of this request.</p></div>
                   <div className="form-section"><h2 className="section-title">Class and absence</h2><div className="form-grid">
-                    <div className="field full"><label htmlFor="course-id">Enrolled course / class *</label><select id="course-id" name="courseId" required disabled={studentCoursesStatus !== 'ready' || studentCourses.length === 0 || studentSubmitting} defaultValue=""><option value="" disabled>{studentCoursesStatus === 'loading' ? 'Loading your enrolled courses…' : studentCoursesStatus === 'error' ? 'Courses could not be loaded' : studentCourses.length === 0 ? 'No enrolled courses found' : 'Choose an enrolled course'}</option>{studentCourses.map((course) => <option key={course.id} value={course.id}>{course.course_code} · {course.course_name}{course.section ? ` (${course.section})` : ''}</option>)}</select></div>
+                    <div className="field full"><label htmlFor="course-id">Enrolled course / class *</label><select id="course-id" name="courseId" required disabled={!profile?.program_id || studentCoursesStatus !== 'ready' || studentCourses.length === 0 || studentSubmitting} defaultValue=""><option value="" disabled>{studentCoursesStatus === 'loading' ? 'Loading your enrolled courses…' : studentCoursesStatus === 'error' ? 'Courses could not be loaded' : studentCourses.length === 0 ? 'No enrolled courses found' : 'Choose an enrolled course'}</option>{studentCourses.map((course) => <option key={course.id} value={course.id}>{course.course_code} · {course.course_name}{course.section ? ` (${course.section})` : ''}</option>)}</select></div>
                     {studentCoursesStatus === 'error' && <div className="field full"><p className="student-data-error" role="alert">{studentCoursesError}</p><button className="secondary" type="button" onClick={() => setStudentRefreshVersion((version) => version + 1)}>Retry course loading</button></div>}
                     {studentCoursesStatus === 'ready' && studentCourses.length === 0 && <p className="field-hint full">No courses are currently linked to your account. Contact Student Affairs if you believe this is incorrect.</p>}
-                    <div className="field"><label htmlFor="absence-start">Absence from *</label><input id="absence-start" name="absenceStart" type="date" required disabled={studentSubmitting} /></div>
-                    <div className="field"><label htmlFor="absence-end">Absence to *</label><input id="absence-end" name="absenceEnd" type="date" required disabled={studentSubmitting} /></div>
-                    <div className="field full"><label htmlFor="reason">Reason for absence *</label><textarea id="reason" name="reason" required maxLength={4000} placeholder="Briefly explain the reason for your absence" disabled={studentSubmitting} /></div>
+                    <div className="field"><label htmlFor="absence-start">Absence from *</label><input id="absence-start" name="absenceStart" type="date" required disabled={!profile?.program_id || studentSubmitting} /></div>
+                    <div className="field"><label htmlFor="absence-end">Absence to *</label><input id="absence-end" name="absenceEnd" type="date" required disabled={!profile?.program_id || studentSubmitting} /></div>
+                    <div className="field full"><label htmlFor="reason">Reason for absence *</label><textarea id="reason" name="reason" required maxLength={4000} placeholder="Briefly explain the reason for your absence" disabled={!profile?.program_id || studentSubmitting} /></div>
                   </div></div>
-                  <p className="field-hint">Evidence uploads are not available in this phase.</p>
+                  <div className="form-section student-submission-evidence">
+                    <h2 className="section-title">Evidence (optional)</h2>
+                    <p className="field-hint">Attach PDF, JPG/JPEG, or PNG files. Maximum 8 MiB per file.</p>
+                    <label className="upload" htmlFor="student-submission-evidence">
+                      Select evidence files
+                      <input id="student-submission-evidence" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" multiple disabled={!profile?.program_id || studentSubmitting} onChange={selectSubmissionEvidence} />
+                    </label>
+                    {studentSubmissionFiles.length > 0 && <ul className="submission-evidence-list">{studentSubmissionFiles.map((file, index) => (
+                      <li key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
+                        <span><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MiB</small></span>
+                        <button className="review-link" type="button" aria-label={`Remove ${file.name}`} disabled={!profile?.program_id || studentSubmitting} onClick={() => removeSubmissionEvidence(index)}>Remove</button>
+                      </li>
+                    ))}</ul>}
+                    {studentSubmissionFileError && <p className="student-data-error" role="alert">{studentSubmissionFileError}</p>}
+                    {studentSubmitProgress && <p className="field-hint" role="status" aria-live="polite">{studentSubmitProgress}</p>}
+                  </div>
                   {studentSubmitError && <p className="student-data-error" role="alert">{studentSubmitError}</p>}
-                  <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')} disabled={studentSubmitting}>Cancel</button><button className="primary" type="submit" disabled={studentSubmitting || studentCoursesStatus !== 'ready' || studentCourses.length === 0}>{studentSubmitting ? 'Submitting…' : 'Submit excuse letter'}</button></div>
+                  <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')} disabled={studentSubmitting}>Cancel</button><button className="primary" type="submit" disabled={!profile?.program_id || studentSubmitting || Boolean(studentSubmissionFileError) || studentCoursesStatus !== 'ready' || studentCourses.length === 0}>{studentSubmitting ? 'Submitting…' : 'Submit excuse letter'}</button></div>
                 </form>
                 <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await review</strong>The request remains pending until it is reviewed in a later phase.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
               </div>
@@ -1030,6 +1235,48 @@ export default function App() {
               </div>
               <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">Status changes are not available in this phase.</span></div>
             </>
+          ) : deanDetailOpen ? (
+            <>
+              <div className="modal-head"><div><h2 id="modal-title">{deanDetail?.student?.full_name || 'Excuse letter review'}</h2><p>{deanDetail ? `${deanDetail.id} · Submitted ${formatDate(deanDetail.submitted_at)}` : 'Loading submission details'}</p></div><button className="close" onClick={closeLetter} aria-label="Close" type="button">×</button></div>
+              <div className="modal-content">
+                {deanDetailStatus === 'loading' && <p className="student-detail-message" role="status">Loading letter details…</p>}
+                {deanDetailError && <p className="student-data-error" role="alert">{deanDetailError}</p>}
+                {deanDetail && <div className="detail-grid">
+                  <Detail label="Student" value={deanDetail.student?.full_name} />
+                  <Detail label="Student number" value={deanDetail.student?.student_number} />
+                  <Detail label="Program" value={deanDetail.student?.program} />
+                  <Detail label="Course / section" value={activeLetter?.course} />
+                  <Detail label="Professor" value={activeLetter?.professor} />
+                  <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div>
+                  <Detail label="Absence dates" value={dateRange(activeLetter)} />
+                  <Detail label="Submitted" value={formatDateTime(deanDetail.submitted_at)} />
+                  <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{deanDetail.reason}</div></div>
+                </div>}
+                {deanDetail && <section className="student-evidence">
+                  <div className="student-evidence-heading"><h3>Evidence</h3></div>
+                  {deanDetail.evidence.length === 0 && <p className="field-hint">No evidence has been uploaded for this letter.</p>}
+                  {deanDetail.evidence.length > 0 && <ul className="student-evidence-list">{deanDetail.evidence.map((item) => (
+                    <li key={item.id}>
+                      <div><strong>{item.original_filename}</strong><small>{item.mime_type} · {(item.size_bytes / 1024 / 1024).toFixed(2)} MB · Uploaded {formatDateTime(item.uploaded_at)}</small></div>
+                      {deanEvidenceLinks[item.id]
+                        ? <div className="student-evidence-actions"><a className="secondary evidence-open" href={deanEvidenceLinks[item.id]} target="_blank" rel="noopener noreferrer">Open private file</a><button className="review-link" type="button" onClick={() => prepareDeanEvidenceLink(item.id)}>Get new link</button></div>
+                        : <button className="secondary" type="button" disabled={deanEvidenceLinkLoading === item.id} onClick={() => prepareDeanEvidenceLink(item.id)}>{deanEvidenceLinkLoading === item.id ? 'Preparing…' : 'Get secure link'}</button>}
+                    </li>
+                  ))}</ul>}
+                </section>}
+                {deanDetail && <section className="status-history"><h3>Status history</h3>{deanDetail.statusEvents.length
+                  ? <ol>{deanDetail.statusEvents.map((event) => <li key={event.id}><strong>{event.old_status} → {event.new_status}</strong><time>{formatDateTime(event.created_at)}</time>{event.comment && <p>{event.comment}</p>}</li>)}</ol>
+                  : <p>No status changes have been recorded yet.</p>}</section>}
+                {deanDecisionError && <p className="student-data-error" role="alert">{deanDecisionError}</p>}
+                {deanDecisionSuccess && <p className="student-evidence-success" role="status">{deanDecisionSuccess}</p>}
+              </div>
+              {deanDetail?.status === 'pending' && deanDetailStatus === 'ready'
+                ? <div className="modal-actions dean-decision-actions">
+                    <div className="comment-field"><label htmlFor="dean-decision-comment">Optional decision comment</label><textarea id="dean-decision-comment" placeholder="Add a note for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} disabled={deanDecisionBusy} /></div>
+                    <div className="action-right"><button className="danger" onClick={() => decideDeanLetter('disapproved')} type="button" disabled={deanDecisionBusy}>{deanDecisionBusy ? 'Saving…' : 'Disapprove'}</button><button className="approve" onClick={() => decideDeanLetter('approved')} type="button" disabled={deanDecisionBusy}>{deanDecisionBusy ? 'Saving…' : 'Approve'}</button></div>
+                  </div>
+                : <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{deanDetail?.status === 'pending' ? 'Decision unavailable until details finish loading.' : 'This letter is no longer pending review.'}</span></div>}
+            </>
           ) : activeLetter && (
             <>
               <div className="modal-head"><div><h2 id="modal-title">{activeLetter.studentName}</h2><p>{activeLetter.id} · Submitted {formatDate(activeLetter.submitted)}</p></div><button className="close" onClick={closeLetter} aria-label="Close" type="button">×</button></div>
@@ -1042,7 +1289,7 @@ export default function App() {
               {activeLetter.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
               <div className="qr-center"><QRCode letter={activeLetter} /></div>
               </div>
-              <div className="modal-actions">{profileRole === 'dean' && activeLetter.status === 'Pending' ? <><div className="comment-field"><textarea aria-label="Optional comment for the student" placeholder="Optional comment for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></div><div className="action-right"><button className="danger" onClick={() => decideLetter('Disapproved')} type="button">Disapprove</button><button className="approve" onClick={() => decideLetter('Approved')} type="button">Approve</button></div></> : <><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></>}</div>
+              <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></div>
             </>
           )}
         </div>}

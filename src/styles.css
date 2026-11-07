@@ -87,6 +87,7 @@ tbody tr:hover { background: #fbfcfa; }
 .student-reason { max-width: 260px; white-space: normal; line-height: 1.45; }
 .student-data-error { margin: 12px 17px; color: #a54836; font-size: 10px; line-height: 1.5; }
 .student-detail-message { color: var(--muted); font-size: 12px; }
+.student-program-warning { margin: 0 0 18px; padding: 12px 14px; border: 1px solid #e4c477; border-radius: 5px; background: #fff8e6; color: #664d17; font-size: 12px; line-height: 1.5; }
 .student-evidence { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 15px; }
 .student-evidence-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .student-evidence-heading h3 { margin: 0; font: 600 15px Georgia, serif; }
@@ -146,6 +147,14 @@ tbody tr:hover { background: #fbfcfa; }
 .evidence-name { display: block; overflow: hidden; padding: 4px; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .field-hint { color: var(--muted); font-size: 9px; line-height: 1.45; }
 .form-account { margin: 0 0 5px; font-size: 12px; font-weight: 700; }
+.student-submission-evidence { display: grid; gap: 7px; }
+.student-submission-evidence .section-title,
+.student-submission-evidence .field-hint { margin-bottom: 0; }
+.submission-evidence-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.submission-evidence-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: #f8f9f6; font-size: 10px; }
+.submission-evidence-list li span { min-width: 0; }
+.submission-evidence-list strong { display: block; overflow-wrap: anywhere; }
+.submission-evidence-list small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
 .form-panel > .student-data-error { margin: 12px 0; }
 .form-grid .student-data-error { margin: 0; }
 .evidence-remove { position: absolute; top: 3px; right: 3px; width: 19px; height: 19px; border: 0; border-radius: 50%; background: rgba(8,40,95,.9); color: white; font-size: 13px; line-height: 1; }
@@ -181,6 +190,8 @@ tbody tr:hover { background: #fbfcfa; }
 .qr-cell.active { background: var(--forest-dark); }
 .qr-center { display: flex; justify-content: center; margin-top: 16px; }
 .modal-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 13px 22px; background: #fafbf9; border-top: 1px solid var(--line); }
+.dean-decision-actions { align-items: flex-end; }
+.dean-decision-actions .comment-field { max-width: 380px; }
 .action-right { display: flex; gap: 8px; }
 .danger { border: 1px solid #e4b1a5; background: white; color: #a54836; border-radius: 5px; padding: 9px 12px; font-size: 11px; font-weight: 700; }
 .approve { border: 0; background: var(--forest); color: white; border-radius: 5px; padding: 9px 12px; font-size: 11px; font-weight: 700; }

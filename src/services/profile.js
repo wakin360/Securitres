@@ -9,7 +9,7 @@ export async function getProfileForUser(userId) {
 
   const { data, error } = await getSupabaseClient()
     .from('profiles')
-    .select('id, role, full_name, student_number, program')
+    .select('id, role, full_name, student_number, program, program_id')
     .eq('id', userId)
     .maybeSingle();
 
