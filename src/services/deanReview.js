@@ -47,16 +47,23 @@ async function getAuthenticatedDean() {
   return client;
 }
 
-export async function getDeanPendingLetters() {
+export async function getDeanLetters() {
   const client = await getAuthenticatedDean();
-  const { data, error } = await client
-    .from('excuse_letters')
-    .select(letterSelection)
-    .eq('status', 'pending')
-    .order('submitted_at', { ascending: false });
+  const pageSize = 500;
+  const letters = [];
 
-  if (error) throw error;
-  return data;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from('excuse_letters')
+      .select(letterSelection)
+      .order('submitted_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    letters.push(...data);
+    if (data.length < pageSize) return letters;
+  }
 }
 
 export async function getDeanLetterDetails(letterId) {

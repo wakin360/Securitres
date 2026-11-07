@@ -18,8 +18,8 @@ import {
 } from './services/studentEvidence.js';
 import {
   getDeanEvidenceSignedUrl,
+  getDeanLetters,
   getDeanLetterDetails,
-  getDeanPendingLetters,
   submitDeanDecision,
 } from './services/deanReview.js';
 
@@ -175,7 +175,8 @@ function initials(name) {
 }
 
 function Status({ value }) {
-  return <span className={`status ${value.toLowerCase()}`}>{value}</span>;
+  const statusClass = value.toLowerCase() === 'rejected' ? 'disapproved' : value.toLowerCase();
+  return <span className={`status ${statusClass}`}>{value}</span>;
 }
 
 function StudentCell({ letter }) {
@@ -205,6 +206,27 @@ function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
                 <td className="student-reason">{letter.reason}</td>
                 <td>{formatDate(letter.submitted)}</td>
                 <td><Status value={letter.status} /></td>
+                <td><button className="review-link" type="button" onClick={() => onOpen(letter.id)}>Details</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  if (mode === 'history') {
+    return (
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Student</th><th>Course / section</th><th>Reason</th><th>Submitted</th><th>Status</th><th /></tr></thead>
+          <tbody>
+            {items.map((letter) => (
+              <tr key={letter.id}>
+                <td><StudentCell letter={letter} /></td>
+                <td>{letter.course}</td>
+                <td className="student-reason">{letter.reason}</td>
+                <td>{formatDate(letter.submitted)}</td>
+                <td><Status value={letter.status === 'Disapproved' ? 'Rejected' : letter.status} /></td>
                 <td><button className="review-link" type="button" onClick={() => onOpen(letter.id)}>Details</button></td>
               </tr>
             ))}
@@ -517,10 +539,10 @@ export default function App() {
 
     setDeanLettersStatus('loading');
     setDeanLettersError('');
-    getDeanPendingLetters()
-      .then((pendingLetters) => {
+    getDeanLetters()
+      .then((lettersForDean) => {
         if (!active) return;
-        setDeanLetters(pendingLetters);
+        setDeanLetters(lettersForDean);
         setDeanLettersStatus('ready');
       })
       .catch((error) => {
@@ -1006,11 +1028,11 @@ export default function App() {
   const matches = (letter, text, status) => (!text || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(text.toLowerCase()))
     && (status === 'all' || letter.status.toLowerCase() === status.toLowerCase());
   const allLetters = sortedLetters.filter((letter) => profileRole === 'dean'
-    ? (!search || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(search.toLowerCase()))
+    ? letter.status === 'Pending'
     : matches(letter, search, filter));
   const historyLetters = sortedLetters.filter((letter) => matches(letter, historySearch, historyFilter));
   const pendingCount = profileRole === 'dean'
-    ? deanLetters.length
+    ? dashboardLetters.length
     : profileRole === 'professor' ? visibleLetters.length : visibleLetters.filter((letter) => letter.status === 'Pending').length;
   const activeLetter = profileRole === 'student'
     ? studentDetail && toStudentLetterView(studentDetail, profile, authUser)
@@ -1075,7 +1097,7 @@ export default function App() {
 
   const roleCopy = {
     student: ['Good morning, Mika.', 'Your excuse letters, all in one place.', 'Recent letters', 'A quick look at your latest submissions', 'Excuse letters', 'Your submissions and their current status.', 'My letters'],
-    dean: ['Good morning, Dean.', 'Review requests and record decisions.', 'Needs your review', 'Pending requests are ready for a decision', 'Review letters', 'Review submissions and record a decision with an optional comment.', 'Review queue'],
+    dean: ['Good morning, Dean.', 'Review requests and record decisions.', 'Needs your review', 'Pending requests are ready for a decision', 'Pending Reviews', 'Review submissions and record a decision with an optional comment.', 'Pending Reviews'],
     professor: ['Good morning, Professor.', 'Approved excuse letters for your classes.', 'Approved for your class', 'Approved requests assigned to you', 'Approved letters', 'Only Dean-approved letters assigned to your classes appear here.', 'Approved letters'],
   }[profileRole];
   const statuses = ['all', 'Pending', 'Approved', 'Disapproved'];
@@ -1087,7 +1109,7 @@ export default function App() {
           <div className="brand"><img className="brand-mark" src={logo} alt="University of the Assumption seal" /><div><div className="brand-name">University of the<br />Assumption</div><div className="brand-sub">Pampanga · Student Affairs</div></div></div>
           <div className="side-label">Workspace</div>
           <nav className="nav" aria-label="Main navigation">
-            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(profileRole === 'student' ? [['history', 'HI', 'Letter history']] : [])].map(([key, icon, label]) => (
+            {[['dashboard', 'OV', 'Overview'], ['letters', 'EL', roleCopy[6]], ...(profileRole === 'student' ? [['history', 'HI', 'Letter history']] : profileRole === 'dean' ? [['history', 'HI', 'Letter History']] : [])].map(([key, icon, label]) => (
               <button className={screen === key || (screen === 'submit' && key === 'letters') ? 'active' : ''} data-screen={key} key={key} onClick={() => navigate(key)} type="button">
                 <span className="nav-icon">{icon}</span>{label}{key === 'letters' && <span className="nav-count">{pendingCount}</span>}
               </button>
@@ -1108,7 +1130,7 @@ export default function App() {
                 <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">+ &nbsp; New excuse letter</button>}</div>
                 <div className="stats">
                   {(profileRole === 'dean' ? [
-                    ['Pending letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : deanLetters.length, 'Awaiting your review', 'EL'],
+                    ['Pending letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : pendingCount, 'Awaiting your review', 'EL'],
                     ['Decision control', 'Secure', 'Database-authorized', '✓'],
                     ['Evidence', 'Private', 'Temporary access links', 'PDF'],
                     ['Audit history', 'On', 'Status changes recorded', 'H'],
@@ -1140,17 +1162,20 @@ export default function App() {
               </section>
             )}
             {screen === 'letters' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Excuse letter desk</div><h1>{roleCopy[4]}</h1><p className="subtitle">{roleCopy[5]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">+ &nbsp; New excuse letter</button>}</div>
-              <section className="panel"><div className="panel-head"><div><div className="panel-title">{profileRole === 'dean' ? 'Pending letters' : 'All letters'}</div><div className="panel-kicker">{profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading the review queue…' : `${deanLetters.length} pending letter${deanLetters.length === 1 ? '' : 's'}` : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'dean' && <><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></>}</div></div>
+              <section className="panel"><div className="panel-head"><div><div className="panel-title">{profileRole === 'dean' ? 'Pending Reviews' : 'All letters'}</div><div className="panel-kicker">{profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading the review queue…' : `${pendingCount} pending letter${pendingCount === 1 ? '' : 's'}` : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'dean' && <><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></>}</div></div>
                 {profileRole === 'student' && studentSubmissionNotice && <p className="student-data-error" role="alert">{studentSubmissionNotice}</p>}
                 {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
                 {profileRole === 'dean' && deanLettersError && <p className="student-data-error" role="alert">{deanLettersError}</p>}
                 <LetterTable items={allLetters} mode={profileRole === 'student' ? 'student' : 'all'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading pending letters…' : deanLettersStatus === 'error' ? 'Pending letters could not be loaded.' : 'There are no pending excuse letters to review.' : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters match this view.' : 'No letters match this view.'} />
               </section>
             </section>}
-            {screen === 'history' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter history</h1><p className="subtitle">A record of your submissions and any recorded status changes.</p></div></div>
-              <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} complete record${sortedLetters.length === 1 ? '' : 's'}`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></div></div>
+            {screen === 'history' && (profileRole === 'student' || profileRole === 'dean') && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Records & decisions</div><h1>Letter History</h1><p className="subtitle">{profileRole === 'dean' ? 'All excuse letters available to your signed-in account, including pending and decided requests.' : 'A record of your submissions and any recorded status changes.'}</p></div></div>
+              <section className="panel"><div className="panel-head"><div><div className="panel-title">Complete record</div><div className="panel-kicker">{profileRole === 'dean'
+                ? deanLettersStatus === 'loading' ? 'Loading letters visible to your account…' : `${sortedLetters.length} visible letter${sortedLetters.length === 1 ? '' : 's'}`
+                : studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} complete record${sortedLetters.length === 1 ? '' : 's'}`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}<input className="search" type="search" placeholder="Search history" aria-label="Search history" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><select className="filter" aria-label="Filter history by status" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}>{(profileRole === 'dean' ? [{ value: 'all', label: 'All' }, { value: 'Pending', label: 'Pending' }, { value: 'Approved', label: 'Approved' }, { value: 'Disapproved', label: 'Rejected' }] : statuses.map((status) => ({ value: status, label: status === 'all' ? 'All statuses' : status }))).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div></div>
                 {profileRole === 'student' && studentLettersError && <p className="student-data-error" role="alert">{studentLettersError}</p>}
-                <LetterTable items={historyLetters} mode={profileRole === 'student' ? 'student' : 'history'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : 'No letters to show yet.'} />
+                {profileRole === 'dean' && deanLettersError && <p className="student-data-error" role="alert">{deanLettersError}</p>}
+                <LetterTable items={historyLetters} mode={profileRole === 'student' ? 'student' : 'history'} profileRole={profileRole} onOpen={openLetter} emptyText={profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading letters…' : deanLettersStatus === 'error' ? 'Letter history could not be loaded.' : 'No letters match this view.' : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : 'No letters to show yet.'} />
               </section>
             </section>}
             {screen === 'submit' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Choose an enrolled course and enter the dates and reason for your absence.</p></div></div>
