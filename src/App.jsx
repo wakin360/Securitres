@@ -34,6 +34,11 @@ import {
   getProfessorLetterStudentIdentity,
   getProfessorLetters,
 } from './services/professorLetters.js';
+import {
+  getProfessorIdentityStatesForAccount,
+  updateProfessorIdentityState,
+} from './utils/professorIdentityState.js';
+import { ProfessorIdentityCell } from './components/ProfessorIdentityCell.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
@@ -238,23 +243,6 @@ function StudentCell({ letter }) {
       </span>
     </div>
   );
-}
-
-function ProfessorIdentityCell({ identityState, field, letterId, onRetry }) {
-  if (identityState?.status === 'loading' || !identityState) {
-    return <span className="student-detail-message" role="status">Loading…</span>;
-  }
-  if (identityState.status === 'error') {
-    return <span className="professor-identity-error">
-      <span role="alert">Could not load</span>
-      <button className="review-link" type="button" aria-label="Retry student identity lookup" onClick={() => onRetry(letterId)}>Retry</button>
-    </span>;
-  }
-
-  const value = identityState.identity?.[field];
-  return value
-    ? value
-    : <span className="muted-dash">Unavailable</span>;
 }
 
 function LetterTable({ items, mode, profileRole, onOpen, emptyText, professorIdentities = {}, onRetryProfessorIdentity }) {
@@ -487,7 +475,6 @@ export default function App() {
   const handledDeepLinkId = useRef('');
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
-  professorTableIdentityAccountId.current = profileRole === 'professor' ? authUser?.id || null : null;
   const visibleLetters = profileRole === 'student'
     ? studentLetters.map((letter) => toStudentLetterView(letter, profile, authUser))
     : profileRole === 'dean'
@@ -660,6 +647,7 @@ export default function App() {
   useEffect(() => {
     let active = true;
     if (profileRole !== 'professor' || !authUser?.id) {
+      professorTableIdentityAccountId.current = null;
       setProfessorCourses([]);
       setProfessorCoursesStatus('idle');
       setProfessorCoursesError('');
@@ -678,6 +666,7 @@ export default function App() {
       return () => { active = false; };
     }
 
+    professorTableIdentityAccountId.current = authUser.id;
     setProfessorCourses([]);
     setProfessorCoursesStatus('loading');
     setProfessorCoursesError('');
@@ -697,7 +686,6 @@ export default function App() {
         if (courses.length === 0) {
           setProfessorLetters([]);
           setProfessorLettersStatus('ready');
-          setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
           return;
         }
 
@@ -707,23 +695,12 @@ export default function App() {
             if (!active) return;
             setProfessorLetters(lettersForProfessor);
             setProfessorLettersStatus('ready');
-            setProfessorTableIdentities({
-              accountId: authUser.id,
-              byLetterId: Object.fromEntries(lettersForProfessor.map((letter) => [
-                letter.id,
-                { status: 'loading', identity: null },
-              ])),
-            });
-            lettersForProfessor.forEach((letter) => {
-              void requestProfessorTableIdentity(letter.id, authUser.id, () => active);
-            });
           })
           .catch((error) => {
             if (!active) return;
             setProfessorLetters([]);
             setProfessorLettersError(professorDataFailureMessage(error));
             setProfessorLettersStatus('error');
-            setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
           });
       })
       .catch((error) => {
@@ -731,11 +708,34 @@ export default function App() {
         setProfessorCourses([]);
         setProfessorCoursesError(professorDataFailureMessage(error));
         setProfessorCoursesStatus('error');
-        setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
       });
 
     return () => { active = false; };
   }, [authUser?.id, profileRole, professorRefreshVersion]);
+
+  useEffect(() => {
+    let active = true;
+    const accountId = profileRole === 'professor' ? authUser?.id || null : null;
+    professorTableIdentityAccountId.current = accountId;
+
+    if (!accountId || professorLettersStatus !== 'ready') {
+      setProfessorTableIdentities({ accountId, byLetterId: {} });
+      return () => { active = false; };
+    }
+
+    setProfessorTableIdentities({
+      accountId,
+      byLetterId: Object.fromEntries(professorLetters.map((letter) => [
+        letter.id,
+        { status: 'loading', identity: null },
+      ])),
+    });
+    professorLetters.forEach((letter) => {
+      void requestProfessorTableIdentity(letter.id, accountId, () => active);
+    });
+
+    return () => { active = false; };
+  }, [authUser?.id, profileRole, professorLetters, professorLettersStatus]);
 
   useEffect(() => {
     if (profileRole === 'dean' && deanLettersStatus !== 'ready') return;
@@ -1080,48 +1080,55 @@ export default function App() {
   async function requestProfessorTableIdentity(letterId, accountId, isRequestCurrent = () => true) {
     const requestId = (professorTableIdentityRequestIds.current[letterId] || 0) + 1;
     professorTableIdentityRequestIds.current[letterId] = requestId;
-    setProfessorTableIdentities((current) => ({
+    setProfessorTableIdentities((current) => updateProfessorIdentityState(current, {
+      letterId,
       accountId,
-      byLetterId: {
-        ...(current.accountId === accountId ? current.byLetterId : {}),
-        [letterId]: { status: 'loading', identity: null },
-      },
+      requestId,
+      status: 'loading',
+      identity: null,
     }));
 
     try {
       const identity = await getProfessorLetterStudentIdentity(letterId);
-      if (
-        !isRequestCurrent()
-        || professorTableIdentityAccountId.current !== accountId
-        || professorTableIdentityRequestIds.current[letterId] !== requestId
-      ) return;
+      const staleReason = !isRequestCurrent()
+        ? 'effect-cleanup'
+        : professorTableIdentityAccountId.current !== accountId
+          ? 'account-changed'
+          : professorTableIdentityRequestIds.current[letterId] !== requestId
+            ? 'request-replaced'
+            : null;
+      if (staleReason) {
+        return;
+      }
 
-      setProfessorTableIdentities((current) => current.accountId !== accountId
-        ? current
-        : {
-          ...current,
-          byLetterId: {
-            ...current.byLetterId,
-            [letterId]: { status: identity ? 'ready' : 'unavailable', identity },
-          },
+      setProfessorTableIdentities((current) => {
+        const next = updateProfessorIdentityState(current, {
+          letterId,
+          accountId,
+          requestId,
+          status: identity ? 'ready' : 'unavailable',
+          identity,
         });
+        return next;
+      });
     } catch (error) {
-      if (
-        !isRequestCurrent()
-        || professorTableIdentityAccountId.current !== accountId
-        || professorTableIdentityRequestIds.current[letterId] !== requestId
-      ) return;
+      const staleReason = !isRequestCurrent()
+        ? 'effect-cleanup'
+        : professorTableIdentityAccountId.current !== accountId
+          ? 'account-changed'
+          : professorTableIdentityRequestIds.current[letterId] !== requestId
+            ? 'request-replaced'
+            : null;
+      if (staleReason) return;
 
-      if (import.meta.env.DEV) console.error('Professor table identity request failed.', error);
-      setProfessorTableIdentities((current) => current.accountId !== accountId
-        ? current
-        : {
-          ...current,
-          byLetterId: {
-            ...current.byLetterId,
-            [letterId]: { status: 'error', identity: null },
-          },
-        });
+      console.error('Professor table identity request failed.', error);
+      setProfessorTableIdentities((current) => updateProfessorIdentityState(current, {
+        letterId,
+        accountId,
+        requestId,
+        status: 'error',
+        identity: null,
+      }));
     }
   }
 
@@ -1494,9 +1501,10 @@ export default function App() {
       && (professorCourseFilter === 'all' || letter.courseId === professorCourseFilter)
       && (!professorDateFromFilter || letter.dateTo >= professorDateFromFilter)
       && (!professorDateToFilter || letter.dateFrom <= professorDateToFilter));
-  const professorTableIdentityByLetterId = professorTableIdentities.accountId === authUser?.id
-    ? professorTableIdentities.byLetterId
-    : {};
+  const professorTableIdentityByLetterId = getProfessorIdentityStatesForAccount(
+    professorTableIdentities,
+    authUser?.id,
+  );
   const professorLatestApprovals = [...professorLetters]
     .sort((a, b) => (b.decided_at || '').localeCompare(a.decided_at || ''))
     .slice(0, 4)
@@ -1633,6 +1641,8 @@ export default function App() {
                         mode="professor"
                         profileRole="professor"
                         onOpen={openLetter}
+                        professorIdentities={professorTableIdentityByLetterId}
+                        onRetryProfessorIdentity={retryProfessorTableIdentity}
                         emptyText={professorCoursesStatus === 'loading' ? 'Loading assigned courses…' : professorCoursesStatus === 'error' ? 'Assigned courses could not be loaded.' : professorCourses.length === 0 ? 'No courses are assigned to your account.' : professorLettersStatus === 'loading' ? 'Loading approved letters…' : professorLettersStatus === 'error' ? 'Approved letters could not be loaded.' : 'Your assigned courses have no approved excuse letters yet.'}
                       />
                     </section>

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import test from 'node:test';
+import { ProfessorIdentityCell } from '../src/components/ProfessorIdentityCell.js';
 
 const professorServiceSource = await readFile(new URL('../src/services/professorLetters.js', import.meta.url), 'utf8');
 const supabaseModuleUrl = `data:text/javascript,${encodeURIComponent("export function getSupabaseClient() { throw new Error('Use a test client.'); }")}`;
@@ -9,6 +12,10 @@ const testableProfessorModule = professorServiceSource.replace(
   JSON.stringify(supabaseModuleUrl),
 );
 const { createProfessorLetterService } = await import(`data:text/javascript,${encodeURIComponent(testableProfessorModule)}`);
+const {
+  getProfessorIdentityStatesForAccount,
+  updateProfessorIdentityState,
+} = await import('../src/utils/professorIdentityState.js');
 
 const professorId = 'professor-1';
 const otherProfessorId = 'professor-2';
@@ -167,6 +174,124 @@ test('Professor identity RPC errors propagate and the caller can retry the looku
   assert.ok(rpcCalls.every((call) => call.args.p_letter_id === approvedLetter.id));
 });
 
+test('Professor table identity state exposes successful RPC fields and rejects stale updates', () => {
+  const identity = { full_name: 'Joaquin Manalastas', student_number: '2024000993' };
+  const initialState = { accountId: null, byLetterId: {} };
+  const readyState = updateProfessorIdentityState(initialState, {
+    letterId: approvedLetter.id,
+    accountId: professorId,
+    requestId: 1,
+    status: 'ready',
+    identity,
+  });
+  const tableIdentities = getProfessorIdentityStatesForAccount(readyState, professorId);
+
+  assert.equal(tableIdentities[approvedLetter.id].status, 'ready');
+  assert.equal(tableIdentities[approvedLetter.id].identity.full_name, identity.full_name);
+  assert.equal(tableIdentities[approvedLetter.id].identity.student_number, identity.student_number);
+  assert.equal(getProfessorIdentityStatesForAccount(readyState, otherProfessorId)[approvedLetter.id], undefined);
+
+  const withUnavailableLetter = updateProfessorIdentityState(readyState, {
+    letterId: 'letter-without-identity',
+    accountId: professorId,
+    requestId: 2,
+    status: 'unavailable',
+    identity: null,
+  });
+  assert.equal(
+    getProfessorIdentityStatesForAccount(withUnavailableLetter, professorId)['letter-without-identity'].status,
+    'unavailable',
+  );
+
+  const withLoadingSecondLetter = updateProfessorIdentityState(readyState, {
+    letterId: 'letter-second',
+    accountId: professorId,
+    requestId: 1,
+    status: 'loading',
+    identity: null,
+  });
+  assert.equal(Object.keys(getProfessorIdentityStatesForAccount(withLoadingSecondLetter, professorId)).length, 2);
+  assert.equal(getProfessorIdentityStatesForAccount(withLoadingSecondLetter, professorId)[approvedLetter.id].status, 'ready');
+
+  const errorState = updateProfessorIdentityState(withLoadingSecondLetter, {
+    letterId: 'letter-second',
+    accountId: professorId,
+    requestId: 1,
+    status: 'error',
+    identity: null,
+  });
+  const retryLoadingState = updateProfessorIdentityState(errorState, {
+    letterId: 'letter-second',
+    accountId: professorId,
+    requestId: 2,
+    status: 'loading',
+    identity: null,
+  });
+  const retryReadyState = updateProfessorIdentityState(retryLoadingState, {
+    letterId: 'letter-second',
+    accountId: professorId,
+    requestId: 2,
+    status: 'ready',
+    identity: { full_name: 'Another Student', student_number: '2024000002' },
+  });
+  assert.equal(getProfessorIdentityStatesForAccount(retryReadyState, professorId)['letter-second'].status, 'ready');
+
+  assert.equal(updateProfessorIdentityState(retryReadyState, {
+    letterId: approvedLetter.id,
+    accountId: otherProfessorId,
+    requestId: 4,
+    status: 'ready',
+    identity: { full_name: 'Stale Account', student_number: '0' },
+  }), retryReadyState);
+  assert.equal(updateProfessorIdentityState(retryReadyState, {
+    letterId: 'letter-second',
+    accountId: professorId,
+    requestId: 1,
+    status: 'error',
+    identity: null,
+  }), retryReadyState);
+});
+
+test('Professor identity cells render the authorized name, number, unavailable, and retry states', () => {
+  const identityState = {
+    status: 'ready',
+    identity: { full_name: 'Joaquin Manalastas', student_number: '2024000993' },
+  };
+  assert.equal(
+    renderToStaticMarkup(React.createElement(ProfessorIdentityCell, { identityState, field: 'full_name' })),
+    'Joaquin Manalastas',
+  );
+  assert.equal(
+    renderToStaticMarkup(React.createElement(ProfessorIdentityCell, { identityState, field: 'student_number' })),
+    '2024000993',
+  );
+  assert.match(
+    renderToStaticMarkup(React.createElement(ProfessorIdentityCell, {
+      identityState: { status: 'unavailable', identity: null },
+      field: 'full_name',
+    })),
+    /Unavailable/,
+  );
+  assert.match(
+    renderToStaticMarkup(React.createElement(ProfessorIdentityCell, {
+      identityState: { status: 'error', identity: null },
+      field: 'full_name',
+      letterId: approvedLetter.id,
+      onRetry() {},
+    })),
+    /Could not load[\s\S]*Retry/,
+  );
+  let retriedLetterId;
+  const errorCell = ProfessorIdentityCell({
+    identityState: { status: 'error', identity: null },
+    field: 'full_name',
+    letterId: approvedLetter.id,
+    onRetry: (letterId) => { retriedLetterId = letterId; },
+  });
+  errorCell.props.children[1].props.onClick();
+  assert.equal(retriedLetterId, approvedLetter.id);
+});
+
 test('a non-Professor cannot call Professor data queries', async () => {
   const { service, queries } = makeClient({ role: 'dean' });
 
@@ -321,6 +446,8 @@ test('Professor evidence migration adds restrictive role and relationship checks
 
 test('Professor UI has explicit loading, failure, empty, read-only, and identity-limitation states', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const identityCell = await readFile(new URL('../src/components/ProfessorIdentityCell.js', import.meta.url), 'utf8');
+  const identityState = await readFile(new URL('../src/utils/professorIdentityState.js', import.meta.url), 'utf8');
   const service = await readFile(new URL('../src/services/professorLetters.js', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 
@@ -336,12 +463,27 @@ test('Professor UI has explicit loading, failure, empty, read-only, and identity
   assert.match(app, /<th>Student Name<\/th><th>Student Number<\/th>/);
   assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="full_name"/);
   assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="student_number"/);
-  assert.match(app, /lettersForProfessor\.forEach\(\(letter\) => \{\s*void requestProfessorTableIdentity\(letter\.id, authUser\.id, \(\) => active\)/);
+  assert.match(app, /items=\{dashboardLetters\.slice\(0, 5\)\}[\s\S]*?professorIdentities=\{professorTableIdentityByLetterId\}[\s\S]*?onRetryProfessorIdentity=\{retryProfessorTableIdentity\}/);
+  assert.match(app, /items=\{professorFilteredLetters\}[\s\S]*?professorIdentities=\{professorTableIdentityByLetterId\}[\s\S]*?onRetryProfessorIdentity=\{retryProfessorTableIdentity\}/);
+  assert.match(app, /useEffect\(\(\) => \{\s*let active = true;\s*const accountId = profileRole === 'professor' \? authUser\?\.id \|\| null : null;\s*professorTableIdentityAccountId\.current = accountId;/);
+  assert.match(app, /professorLetters\.forEach\(\(letter\) => \{\s*void requestProfessorTableIdentity\(letter\.id, accountId, \(\) => active\)/);
+  assert.match(app, /\}, \[authUser\?\.id, profileRole, professorLetters, professorLettersStatus\]\);/);
   assert.match(app, /function retryProfessorTableIdentity\(letterId\)/);
   assert.match(app, /professorTableIdentityRequestIds\.current\[letterId\] !== requestId/);
   assert.match(app, /professorTableIdentityAccountId\.current !== accountId/);
-  assert.match(app, /function ProfessorIdentityCell\([\s\S]*?Loading…[\s\S]*?Could not load[\s\S]*?onRetry\(letterId\)[\s\S]*?Unavailable/);
-  assert.match(app, /professorTableIdentities\.accountId === authUser\.id/);
+  assert.match(app, /updateProfessorIdentityState\(current,/);
+  assert.match(app, /getProfessorIdentityStatesForAccount\(/);
+  assert.match(identityState, /current\.accountId === null && Object\.keys\(current\.byLetterId\)\.length === 0/);
+  assert.match(identityState, /requestId < currentRequestId/);
+  assert.match(identityCell, /identityState\.identity\?\.\[field\]/);
+  assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="full_name"/);
+  assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="student_number"/);
+  assert.match(identityState, /if \(!sameAccount && !uninitialized\) return current/);
+  assert.match(identityState, /if \(currentRequestId != null && requestId < currentRequestId\) return current/);
+  assert.doesNotMatch(app, /setProfessorTableIdentities\(\(current\) => current\.accountId !== accountId\s*\?/);
+  assert.doesNotMatch(app, /professorTableIdentityAccountId\.current = profileRole === 'professor'/);
+  assert.match(identityCell, /Loading…[\s\S]*?Could not load[\s\S]*?onRetry\(letterId\)[\s\S]*?Unavailable/);
+  assert.match(app, /getProfessorIdentityStatesForAccount\(\s*professorTableIdentities,\s*authUser\?\.id/);
   assert.match(styles, /\.professor-table-wrap \{ max-width: 100%; \}/);
   assert.match(styles, /\.professor-letters-table \{ min-width: 930px; \}/);
   assert.match(app, /Read-only view\. Decisions remain with the Dean/);
