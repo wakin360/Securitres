@@ -111,6 +111,18 @@ tbody tr:hover { background: #fbfcfa; }
 .status-history time { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
 .status-history li p { margin: 5px 0 0; line-height: 1.5; }
 .right-col { display: grid; gap: 15px; }
+.professor-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.professor-workspace { grid-template-columns: minmax(0,1fr) 280px; }
+.professor-course-list, .professor-activity-list { display: grid; gap: 0; margin: 0; padding: 0 17px 8px; list-style: none; }
+.professor-course-list li, .professor-activity-item { display: grid; gap: 4px; padding: 11px 0; border-top: 1px solid #edf0eb; font-size: 10px; }
+.professor-course-list li strong, .professor-activity-item strong { line-height: 1.4; }
+.professor-course-list li span, .professor-activity-item span { color: var(--muted); font-size: 9px; }
+.professor-course-error { padding-bottom: 14px; text-align: center; }
+.professor-course-error .student-data-error { margin-bottom: 8px; }
+.professor-letter-tools { align-items: flex-start; flex-wrap: wrap; }
+.professor-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.professor-date-filter { display: grid; gap: 3px; color: var(--muted); font-size: 9px; }
+.professor-date-filter input { min-width: 135px; border: 1px solid var(--line); border-radius: 5px; background: white; padding: 7px; font-size: 10px; }
 .notice { padding: 17px; background: #eff5ef; border: 1px solid #dce8de; border-radius: 7px; }
 .notice-title { color: var(--forest); font: 600 15px Georgia, serif; }
 .notice p { margin: 8px 0 13px; font-size: 10px; color: #5b6e60; line-height: 1.55; }
@@ -276,6 +288,9 @@ tbody tr:hover { background: #fbfcfa; }
   .topbar { min-height: 57px; padding: 0 17px; }
   .content { padding: 23px 17px 38px; }
   .workspace, .letter-layout { grid-template-columns: 1fr; }
+  .professor-workspace { grid-template-columns: 1fr; }
+  .professor-letter-tools { align-items: stretch; }
+  .professor-filters { width: 100%; justify-content: flex-start; }
   .right-col { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
   h1 { font-size: 27px; }
@@ -284,6 +299,9 @@ tbody tr:hover { background: #fbfcfa; }
 }
 @media (max-width: 490px) {
   .right-col { grid-template-columns: 1fr; }
+  .professor-filters { display: grid; grid-template-columns: 1fr 1fr; }
+  .professor-filters > .search, .professor-filters > .filter, .professor-filters > button { width: 100%; max-width: none; }
+  .professor-date-filter input { min-width: 0; width: 100%; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .page-heading .primary { align-self: stretch; }
   .stats { gap: 8px; }
