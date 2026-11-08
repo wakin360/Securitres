@@ -322,6 +322,7 @@ test('Professor evidence migration adds restrictive role and relationship checks
 test('Professor UI has explicit loading, failure, empty, read-only, and identity-limitation states', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const service = await readFile(new URL('../src/services/professorLetters.js', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 
   assert.match(app, /Loading assigned courses/);
   assert.match(app, /Loading approved letters/);
@@ -332,6 +333,17 @@ test('Professor UI has explicit loading, failure, empty, read-only, and identity
   assert.match(app, /Retry identity lookup/);
   assert.match(app, /professorStudentIdentity\.full_name/);
   assert.match(app, /professorStudentIdentity\.student_number/);
+  assert.match(app, /<th>Student Name<\/th><th>Student Number<\/th>/);
+  assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="full_name"/);
+  assert.match(app, /ProfessorIdentityCell identityState=\{professorIdentities\[letter\.id\]\} field="student_number"/);
+  assert.match(app, /lettersForProfessor\.forEach\(\(letter\) => \{\s*void requestProfessorTableIdentity\(letter\.id, authUser\.id, \(\) => active\)/);
+  assert.match(app, /function retryProfessorTableIdentity\(letterId\)/);
+  assert.match(app, /professorTableIdentityRequestIds\.current\[letterId\] !== requestId/);
+  assert.match(app, /professorTableIdentityAccountId\.current !== accountId/);
+  assert.match(app, /function ProfessorIdentityCell\([\s\S]*?Loading…[\s\S]*?Could not load[\s\S]*?onRetry\(letterId\)[\s\S]*?Unavailable/);
+  assert.match(app, /professorTableIdentities\.accountId === authUser\.id/);
+  assert.match(styles, /\.professor-table-wrap \{ max-width: 100%; \}/);
+  assert.match(styles, /\.professor-letters-table \{ min-width: 930px; \}/);
   assert.match(app, /Read-only view\. Decisions remain with the Dean/);
   assert.match(app, /getProfessorLetterDetails\(id\)/);
   assert.match(app, /getProfessorLetterStudentIdentity\(letterId\)/);

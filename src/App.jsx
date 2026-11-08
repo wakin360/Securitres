@@ -240,7 +240,24 @@ function StudentCell({ letter }) {
   );
 }
 
-function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
+function ProfessorIdentityCell({ identityState, field, letterId, onRetry }) {
+  if (identityState?.status === 'loading' || !identityState) {
+    return <span className="student-detail-message" role="status">Loading…</span>;
+  }
+  if (identityState.status === 'error') {
+    return <span className="professor-identity-error">
+      <span role="alert">Could not load</span>
+      <button className="review-link" type="button" aria-label="Retry student identity lookup" onClick={() => onRetry(letterId)}>Retry</button>
+    </span>;
+  }
+
+  const value = identityState.identity?.[field];
+  return value
+    ? value
+    : <span className="muted-dash">Unavailable</span>;
+}
+
+function LetterTable({ items, mode, profileRole, onOpen, emptyText, professorIdentities = {}, onRetryProfessorIdentity }) {
   if (!items.length) return <div className="empty-state">{emptyText}</div>;
   if (mode === 'student') {
     return (
@@ -265,12 +282,14 @@ function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
   }
   if (mode === 'professor') {
     return (
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>Course / section</th><th>Absence dates</th><th>Approved</th><th>Status</th><th /></tr></thead>
+      <div className="table-wrap professor-table-wrap">
+        <table className="professor-letters-table">
+          <thead><tr><th>Student Name</th><th>Student Number</th><th>Course / section</th><th>Absence dates</th><th>Approved</th><th>Status</th><th /></tr></thead>
           <tbody>
             {items.map((letter) => (
               <tr key={letter.id}>
+                <td className="professor-identity-cell"><ProfessorIdentityCell identityState={professorIdentities[letter.id]} field="full_name" letterId={letter.id} onRetry={onRetryProfessorIdentity} /></td>
+                <td className="professor-identity-cell"><ProfessorIdentityCell identityState={professorIdentities[letter.id]} field="student_number" letterId={letter.id} onRetry={onRetryProfessorIdentity} /></td>
                 <td>{letter.course}</td>
                 <td>{dateRange(letter)}</td>
                 <td>{formatDate(letter.approvedAt)}</td>
@@ -422,6 +441,7 @@ export default function App() {
   const [professorLettersStatus, setProfessorLettersStatus] = useState('idle');
   const [professorLettersError, setProfessorLettersError] = useState('');
   const [professorRefreshVersion, setProfessorRefreshVersion] = useState(0);
+  const [professorTableIdentities, setProfessorTableIdentities] = useState({ accountId: null, byLetterId: {} });
   const [professorCourseFilter, setProfessorCourseFilter] = useState('all');
   const [professorDateFromFilter, setProfessorDateFromFilter] = useState('');
   const [professorDateToFilter, setProfessorDateToFilter] = useState('');
@@ -460,11 +480,14 @@ export default function App() {
   const deanEvidenceRequestId = useRef(0);
   const professorDetailRequestId = useRef(0);
   const professorIdentityRequestId = useRef(0);
+  const professorTableIdentityRequestIds = useRef({});
+  const professorTableIdentityAccountId = useRef(null);
   const professorEvidenceRequestId = useRef(0);
   const professorEvidenceLinkRequestId = useRef(0);
   const handledDeepLinkId = useRef('');
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
+  professorTableIdentityAccountId.current = profileRole === 'professor' ? authUser?.id || null : null;
   const visibleLetters = profileRole === 'student'
     ? studentLetters.map((letter) => toStudentLetterView(letter, profile, authUser))
     : profileRole === 'dean'
@@ -643,6 +666,10 @@ export default function App() {
       setProfessorLetters([]);
       setProfessorLettersStatus('idle');
       setProfessorLettersError('');
+      setProfessorTableIdentities({ accountId: null, byLetterId: {} });
+      Object.keys(professorTableIdentityRequestIds.current).forEach((letterId) => {
+        professorTableIdentityRequestIds.current[letterId] += 1;
+      });
       setProfessorDetail(null);
       setProfessorDetailStatus('idle');
       setProfessorEvidence([]);
@@ -657,6 +684,10 @@ export default function App() {
     setProfessorLetters([]);
     setProfessorLettersStatus('idle');
     setProfessorLettersError('');
+    setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
+    Object.keys(professorTableIdentityRequestIds.current).forEach((letterId) => {
+      professorTableIdentityRequestIds.current[letterId] += 1;
+    });
 
     getProfessorCourses()
       .then((courses) => {
@@ -666,6 +697,7 @@ export default function App() {
         if (courses.length === 0) {
           setProfessorLetters([]);
           setProfessorLettersStatus('ready');
+          setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
           return;
         }
 
@@ -675,12 +707,23 @@ export default function App() {
             if (!active) return;
             setProfessorLetters(lettersForProfessor);
             setProfessorLettersStatus('ready');
+            setProfessorTableIdentities({
+              accountId: authUser.id,
+              byLetterId: Object.fromEntries(lettersForProfessor.map((letter) => [
+                letter.id,
+                { status: 'loading', identity: null },
+              ])),
+            });
+            lettersForProfessor.forEach((letter) => {
+              void requestProfessorTableIdentity(letter.id, authUser.id, () => active);
+            });
           })
           .catch((error) => {
             if (!active) return;
             setProfessorLetters([]);
             setProfessorLettersError(professorDataFailureMessage(error));
             setProfessorLettersStatus('error');
+            setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
           });
       })
       .catch((error) => {
@@ -688,6 +731,7 @@ export default function App() {
         setProfessorCourses([]);
         setProfessorCoursesError(professorDataFailureMessage(error));
         setProfessorCoursesStatus('error');
+        setProfessorTableIdentities({ accountId: authUser.id, byLetterId: {} });
       });
 
     return () => { active = false; };
@@ -1031,6 +1075,67 @@ export default function App() {
       setProfessorStudentIdentityError(professorDataFailureMessage(error));
       setProfessorStudentIdentityStatus('error');
     }
+  }
+
+  async function requestProfessorTableIdentity(letterId, accountId, isRequestCurrent = () => true) {
+    const requestId = (professorTableIdentityRequestIds.current[letterId] || 0) + 1;
+    professorTableIdentityRequestIds.current[letterId] = requestId;
+    setProfessorTableIdentities((current) => ({
+      accountId,
+      byLetterId: {
+        ...(current.accountId === accountId ? current.byLetterId : {}),
+        [letterId]: { status: 'loading', identity: null },
+      },
+    }));
+
+    try {
+      const identity = await getProfessorLetterStudentIdentity(letterId);
+      if (
+        !isRequestCurrent()
+        || professorTableIdentityAccountId.current !== accountId
+        || professorTableIdentityRequestIds.current[letterId] !== requestId
+      ) return;
+
+      setProfessorTableIdentities((current) => current.accountId !== accountId
+        ? current
+        : {
+          ...current,
+          byLetterId: {
+            ...current.byLetterId,
+            [letterId]: { status: identity ? 'ready' : 'unavailable', identity },
+          },
+        });
+    } catch (error) {
+      if (
+        !isRequestCurrent()
+        || professorTableIdentityAccountId.current !== accountId
+        || professorTableIdentityRequestIds.current[letterId] !== requestId
+      ) return;
+
+      if (import.meta.env.DEV) console.error('Professor table identity request failed.', error);
+      setProfessorTableIdentities((current) => current.accountId !== accountId
+        ? current
+        : {
+          ...current,
+          byLetterId: {
+            ...current.byLetterId,
+            [letterId]: { status: 'error', identity: null },
+          },
+        });
+    }
+  }
+
+  function retryProfessorTableIdentity(letterId) {
+    if (
+      profileRole !== 'professor'
+      || professorLettersStatus !== 'ready'
+      || !authUser?.id
+      || !professorLetters.some((letter) => letter.id === letterId)
+      || professorTableIdentities.accountId === authUser.id
+        && professorTableIdentities.byLetterId[letterId]?.status === 'loading'
+    ) return;
+
+    void requestProfessorTableIdentity(letterId, authUser.id);
   }
 
   function retryProfessorStudentIdentity() {
@@ -1389,6 +1494,9 @@ export default function App() {
       && (professorCourseFilter === 'all' || letter.courseId === professorCourseFilter)
       && (!professorDateFromFilter || letter.dateTo >= professorDateFromFilter)
       && (!professorDateToFilter || letter.dateFrom <= professorDateToFilter));
+  const professorTableIdentityByLetterId = professorTableIdentities.accountId === authUser?.id
+    ? professorTableIdentities.byLetterId
+    : {};
   const professorLatestApprovals = [...professorLetters]
     .sort((a, b) => (b.decided_at || '').localeCompare(a.decided_at || ''))
     .slice(0, 4)
@@ -1583,7 +1691,7 @@ export default function App() {
                   </div>
                   {professorCoursesError && <p className="student-data-error" role="alert">{professorCoursesError}</p>}
                   {professorLettersError && <p className="student-data-error" role="alert">{professorLettersError}</p>}
-                  <LetterTable items={professorFilteredLetters} mode="professor" profileRole="professor" onOpen={openLetter} emptyText={professorCoursesStatus === 'loading' ? 'Loading assigned courses…' : professorCoursesStatus === 'error' ? 'Assigned courses could not be loaded.' : professorCourses.length === 0 ? 'No courses are assigned to your account.' : professorLettersStatus === 'loading' ? 'Loading approved letters…' : professorLettersStatus === 'error' ? 'Approved letters could not be loaded.' : professorLetters.length === 0 ? 'Your assigned courses have no approved excuse letters yet.' : 'No approved letters match these filters.'} />
+                  <LetterTable items={professorFilteredLetters} mode="professor" profileRole="professor" onOpen={openLetter} professorIdentities={professorTableIdentityByLetterId} onRetryProfessorIdentity={retryProfessorTableIdentity} emptyText={professorCoursesStatus === 'loading' ? 'Loading assigned courses…' : professorCoursesStatus === 'error' ? 'Assigned courses could not be loaded.' : professorCourses.length === 0 ? 'No courses are assigned to your account.' : professorLettersStatus === 'loading' ? 'Loading approved letters…' : professorLettersStatus === 'error' ? 'Approved letters could not be loaded.' : professorLetters.length === 0 ? 'Your assigned courses have no approved excuse letters yet.' : 'No approved letters match these filters.'} />
                 </section>
               ) : (
               <section className="panel"><div className="panel-head"><div><div className="panel-title">{profileRole === 'dean' ? 'Pending Reviews' : 'All letters'}</div><div className="panel-kicker">{profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading the review queue…' : `${pendingCount} pending letter${pendingCount === 1 ? '' : 's'}` : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your records…' : `${sortedLetters.length} letter${sortedLetters.length === 1 ? '' : 's'} in this view`}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole !== 'dean' && <><input className="search" type="search" placeholder="Search names or course" aria-label="Search letters" value={search} onChange={(event) => setSearch(event.target.value)} /><select className="filter" aria-label="Filter by status" value={filter} onChange={(event) => setFilter(event.target.value)}>{statuses.map((status) => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></>}</div></div>

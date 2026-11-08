@@ -67,6 +67,10 @@ h1 { font: 500 31px Georgia, serif; margin: 0; }
 .panel-title { font: 600 17px Georgia, serif; }
 .panel-kicker { color: var(--muted); font-size: 10px; margin-top: 4px; }
 .table-wrap { overflow-x: auto; }
+.professor-table-wrap { max-width: 100%; }
+.professor-letters-table { min-width: 930px; }
+.professor-identity-cell { min-width: 145px; white-space: normal; }
+.professor-identity-error { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 table { border-collapse: collapse; width: 100%; text-align: left; white-space: nowrap; }
 th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #78847b; padding: 11px 18px; background: #f8f9f6; border-top: 1px solid #edf0eb; border-bottom: 1px solid #edf0eb; }
 td { padding: 13px 18px; border-bottom: 1px solid #edf0eb; font-size: 11px; }
