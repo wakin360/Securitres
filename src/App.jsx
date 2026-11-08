@@ -245,12 +245,12 @@ function StudentCell({ letter }) {
   );
 }
 
-function LetterTable({ items, mode, profileRole, onOpen, emptyText, professorIdentities = {}, onRetryProfessorIdentity }) {
+function LetterTable({ items, mode, profileRole, onOpen, emptyText, professorIdentities = {}, onRetryProfessorIdentity, tableClass = '' }) {
   if (!items.length) return <div className="empty-state">{emptyText}</div>;
   if (mode === 'student') {
     return (
-      <div className="table-wrap">
-        <table>
+      <div className={`table-wrap${tableClass ? ` ${tableClass}-wrap` : ''}`}>
+        <table className={tableClass}>
           <thead><tr><th>Course</th><th>Absence dates</th><th>Reason</th><th>Submitted</th><th>Status</th><th /></tr></thead>
           <tbody>
             {items.map((letter) => (
@@ -278,7 +278,7 @@ function LetterTable({ items, mode, profileRole, onOpen, emptyText, professorIde
               <tr key={letter.id}>
                 <td className="professor-identity-cell"><ProfessorIdentityCell identityState={professorIdentities[letter.id]} field="full_name" letterId={letter.id} onRetry={onRetryProfessorIdentity} /></td>
                 <td className="professor-identity-cell"><ProfessorIdentityCell identityState={professorIdentities[letter.id]} field="student_number" letterId={letter.id} onRetry={onRetryProfessorIdentity} /></td>
-                <td>{letter.course}</td>
+                <td className="professor-course-cell">{letter.course}</td>
                 <td>{dateRange(letter)}</td>
                 <td>{formatDate(letter.approvedAt)}</td>
                 <td><Status value="Approved" /></td>
@@ -1488,6 +1488,12 @@ export default function App() {
   }
 
   const sortedLetters = [...visibleLetters].sort((a, b) => b.submitted.localeCompare(a.submitted));
+  const deanLetterSummary = sortedLetters.reduce((summary, letter) => {
+    if (letter.status === 'Pending') summary.pending += 1;
+    if (letter.status === 'Approved') summary.approved += 1;
+    if (letter.status === 'Disapproved') summary.rejected += 1;
+    return summary;
+  }, { pending: 0, approved: 0, rejected: 0 });
   const dashboardLetters = profileRole === 'dean' ? sortedLetters.filter((letter) => letter.status === 'Pending') : sortedLetters;
   const matches = (letter, text, status) => (!text || `${letter.studentName} ${letter.studentNumber} ${letter.course} ${letter.professor}`.toLowerCase().includes(text.toLowerCase()))
     && (status === 'all' || letter.status.toLowerCase() === status.toLowerCase());
@@ -1510,7 +1516,7 @@ export default function App() {
     .slice(0, 4)
     .map(toProfessorLetterView);
   const pendingCount = profileRole === 'dean'
-    ? dashboardLetters.length
+    ? deanLetterSummary.pending
     : profileRole === 'professor'
       ? professorCoursesStatus === 'error' || professorLettersStatus === 'error' ? '—' : professorLetters.length
       : visibleLetters.filter((letter) => letter.status === 'Pending').length;
@@ -1611,12 +1617,12 @@ export default function App() {
             {screen === 'dashboard' && (
               <section className="screen active">
                 <div className="page-heading"><div><div className="eyebrow">University of the Assumption · San Fernando, Pampanga</div><h1>{roleCopy[0].replace('Mika', displayName.split(/\s+/)[0])}</h1><p className="subtitle">{roleCopy[1]}</p></div>{profileRole === 'student' && <button className="primary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">+ &nbsp; New excuse letter</button>}</div>
-                <div className={`stats${profileRole === 'professor' ? ' professor-stats' : ''}`}>
+                <div className={`stats${profileRole === 'professor' ? ' professor-stats' : ''}${profileRole === 'dean' ? ' dean-stats' : ''}`}>
                   {(profileRole === 'dean' ? [
-                    ['Pending letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : pendingCount, 'Awaiting your review', 'EL'],
-                    ['Decision control', 'Secure', 'Database-authorized', '✓'],
-                    ['Evidence', 'Private', 'Temporary access links', 'PDF'],
-                    ['Audit history', 'On', 'Status changes recorded', 'H'],
+                    ['Pending Letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : pendingCount, 'Awaiting your review', '!', 'stat--pending'],
+                    ['Approved Letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : deanLetterSummary.approved, 'Approved requests', '✓', 'stat--approved'],
+                    ['Rejected Letters', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : deanLetterSummary.rejected, 'Rejected requests', '×', 'stat--rejected'],
+                    ['Total Reviewed', deanLettersStatus === 'loading' ? '…' : deanLettersStatus === 'error' ? '—' : deanLetterSummary.approved + deanLetterSummary.rejected, 'Approved and rejected', 'Σ', 'stat--reviewed'],
                   ] : profileRole === 'professor' ? [
                     ['Assigned courses', professorCoursesStatus === 'loading' ? '…' : professorCoursesStatus === 'error' ? '—' : professorCourses.length, 'Courses assigned to your account', 'C'],
                     ['Approved letters', professorCoursesStatus === 'error' || professorLettersStatus === 'error' ? '—' : professorLettersStatus === 'loading' || professorCoursesStatus === 'loading' ? '…' : professorLetters.length, 'Dean-approved letters for your courses', '✓'],
@@ -1625,7 +1631,7 @@ export default function App() {
                     ['Awaiting review', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Pending').length, 'In the Dean’s queue', '…'],
                     ['Approved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Approved').length, 'Ready to view', 'OK'],
                     ['Disapproved', profileRole === 'student' && studentLettersStatus === 'loading' ? '…' : profileRole === 'student' && studentLettersStatus === 'error' ? '—' : visibleLetters.filter((item) => item.status === 'Disapproved').length, 'See Dean comments', 'NO'],
-                  ]).map(([label, value, note, mark]) => <div className="stat" key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
+                  ]).map(([label, value, note, mark, cardClass]) => <div className={`stat${cardClass ? ` ${cardClass}` : ''}`} key={label}><div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div><div className="stat-mark">{mark}</div></div>)}
                 </div>
                 {profileRole === 'professor' ? (
                   <div className="workspace professor-workspace">
@@ -1654,7 +1660,7 @@ export default function App() {
                         {professorCoursesStatus === 'ready' && professorCourses.length === 0 && <div className="empty-state">No courses are assigned to your account.</div>}
                         {professorCoursesStatus === 'ready' && professorCourses.length > 0 && <ul className="professor-course-list">{professorCourses.map((course) => <li key={course.id}><strong>{course.course_code} · {course.course_name}</strong><span>{course.section ? `Section ${course.section}` : 'Section not specified'}</span></li>)}</ul>}
                       </section>
-                      <section className="panel">
+                      <section className="panel professor-latest-approvals">
                         <div className="panel-head"><div><div className="panel-title">Latest approvals</div><div className="panel-kicker">Recent Dean decisions for your courses</div></div></div>
                         {professorCoursesStatus === 'loading' && <div className="empty-state" role="status">Loading approved-letter activity…</div>}
                         {(professorCoursesStatus === 'error' || professorLettersStatus === 'error') && <div className="empty-state student-data-error" role="alert">Approval activity could not be loaded.</div>}
@@ -1666,22 +1672,21 @@ export default function App() {
                   </div>
                 ) : (
                 <div className="workspace">
-                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'student' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div></div>
+                  <section className="panel"><div className="panel-head"><div><div className="panel-title">{profileRole === 'dean' ? 'Pending Requests' : roleCopy[2]}</div><div className="panel-kicker">{roleCopy[3]}</div></div><div className="table-tools">{profileRole === 'student' && <button className="secondary" onClick={() => setStudentRefreshVersion((version) => version + 1)} type="button" disabled={studentLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'dean' && <button className="secondary" onClick={() => setDeanRefreshVersion((version) => version + 1)} type="button" disabled={deanLettersStatus === 'loading'}>Refresh</button>}{profileRole === 'student' && <button className="secondary" onClick={() => navigate('history')} type="button">View history</button>}</div></div>
                     {profileRole === 'dean' && deanLettersError && <p className="student-data-error" role="alert">{deanLettersError}</p>}
                     <LetterTable
                       items={dashboardLetters.slice(0, 5)}
                       mode={profileRole === 'student' ? 'student' : profileRole === 'dean' ? 'dean' : 'recent'}
                       profileRole={profileRole}
                       onOpen={openLetter}
+                      tableClass={profileRole === 'student' ? 'student-dashboard-table' : ''}
                       emptyText={profileRole === 'dean' ? deanLettersStatus === 'loading' ? 'Loading pending letters…' : deanLettersStatus === 'error' ? 'Pending letters could not be loaded.' : 'There are no pending excuse letters to review.' : profileRole === 'student' && studentLettersStatus === 'loading' ? 'Loading your letters…' : profileRole === 'student' && studentLettersStatus === 'error' ? studentLettersError : profileRole === 'student' ? 'No excuse letters submitted yet.' : 'Nothing here yet. New letters will appear as they are submitted.'}
                     />
                   </section>
-                  <aside className="right-col">
-                    {profileRole === 'dean'
-                      ? <section className="notice"><div className="notice-title">Secure letter review</div><p>Open a pending submission to review its details and private evidence. Your decision is recorded in the status history.</p></section>
-                      : <><section className="notice"><div className="notice-title">Paperwork, without the paper.</div><p>Submit an excuse letter once. Student Affairs reviews it, and your professor can see it as soon as it is approved.</p>{profileRole === 'student' && <button className="secondary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">Start a letter &nbsp; →</button>}</section>
-                        <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} loading={studentLettersStatus === 'loading'} error={profileRole === 'student' ? studentLettersError : ''} /></section></>}
-                  </aside>
+                  {profileRole === 'student' && <aside className="right-col">
+                    <section className="notice student-dashboard-cta"><div className="notice-title">Ready to submit?</div><p>Start a new excuse letter.</p><button className="secondary" onClick={() => navigate('submit')} disabled={!profile?.program_id} type="button">Start a letter &nbsp; →</button></section>
+                    <section className="panel"><div className="panel-head"><div><div className="panel-title">Latest activity</div><div className="panel-kicker">Updates from the letter desk</div></div></div><Activity items={visibleLetters} notifications={notifications} profileRole={profileRole} email={authUser.email} displayName={displayName} loading={studentLettersStatus === 'loading'} error={studentLettersError} /></section>
+                  </aside>}
                 </div>
                 )}
               </section>

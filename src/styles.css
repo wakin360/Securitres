@@ -61,15 +61,57 @@ h1 { font: 500 31px Georgia, serif; margin: 0; }
 .stat:nth-child(2) .stat-mark { background: var(--gold-pale); color: #8e6c21; }
 .stat:nth-child(3) .stat-mark { background: var(--coral-pale); color: var(--coral); }
 .stat:nth-child(4) .stat-mark { background: #e9ecea; color: #58685f; }
-.workspace { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 17px; align-items: start; }
+.dean-stats { gap: 15px; }
+.dean-stats .stat { position: relative; min-height: 126px; overflow: hidden; padding: 18px 19px; border-radius: 9px; box-shadow: 0 5px 18px rgba(8,40,95,.055); }
+.dean-stats .stat::before { position: absolute; inset: 0 auto 0 0; width: 4px; background: #9aa8b2; content: ""; }
+.dean-stats .stat-label { color: #52616a; font-size: 11px; font-weight: 700; letter-spacing: .15px; }
+.dean-stats .stat-value { margin-top: 13px; font-size: 32px; font-weight: 600; }
+.dean-stats .stat-note { font-size: 10px; }
+.dean-stats .stat-mark { width: 33px; height: 33px; border-radius: 9px; background: #edf0f2; color: #57636b; font-size: 15px; }
+.dean-stats .stat--pending { border-color: #b7c9e2; background: linear-gradient(125deg, #f1f5fb, #fff 75%); box-shadow: 0 7px 22px rgba(18,60,122,.12); }
+.dean-stats .stat--pending::before { background: var(--forest); }
+.dean-stats .stat--pending .stat-label { color: var(--forest-dark); }
+.dean-stats .stat--pending .stat-value { color: var(--forest); }
+.dean-stats .stat--pending .stat-mark { background: #dce7f5; color: var(--forest); }
+.dean-stats .stat--approved::before { background: #36825c; }
+.dean-stats .stat--approved .stat-value, .dean-stats .stat--approved .stat-mark { color: #246549; }
+.dean-stats .stat--approved .stat-mark { background: #e1f0e7; }
+.dean-stats .stat--rejected::before { background: var(--coral); }
+.dean-stats .stat--rejected .stat-value, .dean-stats .stat--rejected .stat-mark { color: #a54836; }
+.dean-stats .stat--rejected .stat-mark { background: var(--coral-pale); }
+.dean-stats .stat--reviewed::before { background: #627895; }
+.dean-stats .stat--reviewed .stat-value, .dean-stats .stat--reviewed .stat-mark { color: #405a7a; }
+.dean-stats .stat--reviewed .stat-mark { background: #e8edf4; }
+.workspace { display: grid; grid-template-columns: minmax(0,1fr); gap: 17px; align-items: start; }
+.workspace > .right-col { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .panel { min-width: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 4px 16px rgba(27,48,37,.025); }
 .panel-head { padding: 17px 19px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .panel-title { font: 600 17px Georgia, serif; }
 .panel-kicker { color: var(--muted); font-size: 10px; margin-top: 4px; }
 .table-wrap { overflow-x: auto; }
 .professor-table-wrap { max-width: 100%; }
-.professor-letters-table { min-width: 930px; }
-.professor-identity-cell { min-width: 145px; white-space: normal; }
+.student-dashboard-table { min-width: 760px; table-layout: fixed; }
+.student-dashboard-table th, .student-dashboard-table td { padding: 9px 10px; }
+.student-dashboard-table th:nth-child(1) { width: 19%; }
+.student-dashboard-table th:nth-child(2) { width: 25%; }
+.student-dashboard-table th:nth-child(3) { width: 22%; }
+.student-dashboard-table th:nth-child(4) { width: 14%; }
+.student-dashboard-table th:nth-child(5) { width: 12%; }
+.student-dashboard-table th:nth-child(6) { width: 8%; }
+.student-dashboard-table td:nth-child(1), .student-dashboard-table td:nth-child(3) { white-space: normal; overflow-wrap: anywhere; }
+.student-dashboard-table td:nth-child(6), .student-dashboard-table .review-link { white-space: nowrap; }
+.professor-letters-table { min-width: 980px; table-layout: fixed; }
+.professor-letters-table th, .professor-letters-table td { padding: 9px 10px; }
+.professor-letters-table th:nth-child(1) { width: 13%; }
+.professor-letters-table th:nth-child(2) { width: 11%; }
+.professor-letters-table th:nth-child(3) { width: 22%; }
+.professor-letters-table th:nth-child(4) { width: 22%; min-width: 210px; }
+.professor-letters-table th:nth-child(5) { width: 14%; min-width: 140px; }
+.professor-letters-table th:nth-child(6) { width: 10%; }
+.professor-letters-table th:nth-child(7) { width: 8%; }
+.professor-letters-table .professor-identity-cell { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.professor-letters-table .professor-course-cell { white-space: normal; overflow-wrap: anywhere; }
+.professor-letters-table td:nth-child(4), .professor-letters-table td:nth-child(5) { white-space: nowrap; }
 .professor-identity-error { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 table { border-collapse: collapse; width: 100%; text-align: left; white-space: nowrap; }
 th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #78847b; padding: 11px 18px; background: #f8f9f6; border-top: 1px solid #edf0eb; border-bottom: 1px solid #edf0eb; }
@@ -116,7 +158,7 @@ tbody tr:hover { background: #fbfcfa; }
 .status-history li p { margin: 5px 0 0; line-height: 1.5; }
 .right-col { display: grid; gap: 15px; }
 .professor-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
-.professor-workspace { grid-template-columns: minmax(0,1fr) 280px; }
+.professor-workspace { grid-template-columns: minmax(0,1fr); }
 .professor-course-list, .professor-activity-list { display: grid; gap: 0; margin: 0; padding: 0 17px 8px; list-style: none; }
 .professor-course-list li, .professor-activity-item { display: grid; gap: 4px; padding: 11px 0; border-top: 1px solid #edf0eb; font-size: 10px; }
 .professor-course-list li strong, .professor-activity-item strong { line-height: 1.4; }
@@ -131,6 +173,12 @@ tbody tr:hover { background: #fbfcfa; }
 .notice-title { color: var(--forest); font: 600 15px Georgia, serif; }
 .notice p { margin: 8px 0 13px; font-size: 10px; color: #5b6e60; line-height: 1.55; }
 .notice .secondary { background: rgba(255,255,255,.7); }
+.student-dashboard-cta { padding: 13px 15px; }
+.student-dashboard-cta p { margin: 5px 0 10px; }
+.professor-latest-approvals .panel-head { padding: 12px 15px 8px; }
+.professor-latest-approvals .professor-activity-list { grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 12px; padding: 0 15px 10px; }
+.professor-latest-approvals .professor-activity-item { padding: 7px 0; }
+.professor-latest-approvals .empty-state { padding: 14px 12px; }
 .activity { padding: 0 17px 12px; }
 .activity-item { display: grid; grid-template-columns: 21px 1fr; gap: 9px; padding: 10px 0; border-bottom: 1px solid #edf0eb; }
 .activity-item:last-child { border-bottom: 0; }
@@ -265,7 +313,7 @@ tbody tr:hover { background: #fbfcfa; }
   .shell { grid-template-columns: 210px minmax(0,1fr); }
   .content { padding: 28px 24px 45px; }
   .topbar { padding: 0 24px; }
-  .workspace, .letter-layout { grid-template-columns: minmax(0,1fr) 245px; }
+  .letter-layout { grid-template-columns: minmax(0,1fr) 245px; }
   .stats { gap: 9px; }
   .stat { padding: 14px; }
 }
@@ -297,18 +345,22 @@ tbody tr:hover { background: #fbfcfa; }
   .professor-filters { width: 100%; justify-content: flex-start; }
   .right-col { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .dean-stats { gap: 10px; }
   h1 { font-size: 27px; }
   .user-name, .user-role { display: none; }
   .user-chip { padding-left: 10px; }
 }
 @media (max-width: 490px) {
   .right-col { grid-template-columns: 1fr; }
+  .workspace > .right-col { grid-template-columns: 1fr; }
   .professor-filters { display: grid; grid-template-columns: 1fr 1fr; }
   .professor-filters > .search, .professor-filters > .filter, .professor-filters > button { width: 100%; max-width: none; }
   .professor-date-filter input { min-width: 0; width: 100%; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .page-heading .primary { align-self: stretch; }
   .stats { gap: 8px; }
+  .dean-stats .stat { min-height: 108px; padding: 12px; }
+  .dean-stats .stat-value { font-size: 26px; }
   .stat { min-height: 98px; padding: 12px; }
   .stat-value { font-size: 25px; }
   .top-actions { gap: 7px; }
