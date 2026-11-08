@@ -1,4 +1,11 @@
 {
+  "installCommand": "npm ci",
+  "crons": [
+    {
+      "path": "/api/send-dean-daily-digest",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/student", "destination": "/student.html" },
     { "source": "/dean", "destination": "/dean.html" },

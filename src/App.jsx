@@ -22,6 +22,10 @@ import {
   getDeanLetterDetails,
   submitDeanDecision,
 } from './services/deanReview.js';
+import {
+  getStudentDecisionNotification,
+  sendStudentDecisionNotification,
+} from './services/studentDecisionNotifications.js';
 
 const STORAGE_KEYS = {
   letters: 'ua-excuse-letters-v1',
@@ -91,6 +95,15 @@ function dateRange(letter) {
   return letter.dateFrom === letter.dateTo
     ? formatDate(letter.dateFrom)
     : `${formatDate(letter.dateFrom)} – ${formatDate(letter.dateTo)}`;
+}
+
+function getLetterDeepLink(letterId) {
+  const url = new URL(window.location.href);
+  url.pathname = '/';
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('letter', letterId);
+  return url.toString();
 }
 
 function toStudentLetterView(letter, profile, authUser) {
@@ -267,57 +280,39 @@ function LetterTable({ items, mode, profileRole, onOpen, emptyText }) {
   );
 }
 
-function QRCode({ letter }) {
+function QRCode({ letterId }) {
   const [dataUrl, setDataUrl] = useState('');
-  const payload = JSON.stringify({
-    id: letter.id,
-    studentName: letter.studentName,
-    studentNumber: letter.studentNumber,
-    course: letter.course,
-    professor: letter.professor,
-    status: letter.status,
-    submitted: letter.submitted,
-  });
-  const seed = [...payload].reduce((value, char) => (value * 131 + char.charCodeAt(0)) >>> 0, 0);
+  const [generationError, setGenerationError] = useState('');
+  const letterUrl = getLetterDeepLink(letterId);
 
   useEffect(() => {
     let active = true;
-    if (window.QRCode?.toDataURL) {
-      window.QRCode.toDataURL(payload, {
-        errorCorrectionLevel: 'M',
-        margin: 1,
-        width: 180,
-        color: { dark: '#08285f', light: '#ffffff' },
-      }).then((result) => {
-        if (active) setDataUrl(result);
-      }).catch((error) => console.warn('QR generation failed.', error));
-    }
+    setDataUrl('');
+    setGenerationError('');
+    import('qrcode').then(({ default: QRCodeGenerator }) => QRCodeGenerator.toDataURL(letterUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 240,
+      color: { dark: '#08285f', light: '#ffffff' },
+    })).then((result) => {
+      if (active) setDataUrl(result);
+    }).catch((error) => {
+      if (!active) return;
+      console.error('Could not generate the letter QR code.', error);
+      setGenerationError('The QR code could not be generated. Use the secure link below instead.');
+    });
     return () => { active = false; };
-  }, [payload]);
+  }, [letterUrl]);
 
   return (
     <div className="qr-box">
-      <div className="detail-label">Verification QR</div>
+      <div className="detail-label">Open this exact letter</div>
       {dataUrl ? (
-        <img className="qr-image" src={dataUrl} alt={`Verification QR for ${letter.id}`} />
-      ) : (
-        <div className="qr-grid" style={{ gridTemplateColumns: 'repeat(21, 5px)' }}>
-          {Array.from({ length: 441 }, (_, index) => {
-            const row = Math.floor(index / 21);
-            const col = index % 21;
-            const inTopLeft = row < 7 && col < 7;
-            const inTopRight = row < 7 && col >= 14;
-            const inBottomLeft = row >= 14 && col < 7;
-            const inFinder = inTopLeft || inTopRight || inBottomLeft;
-            const finderRow = inBottomLeft ? row - 14 : row;
-            const finderCol = inTopRight ? col - 14 : col;
-            const finderPixel = finderRow === 0 || finderRow === 6 || finderCol === 0 || finderCol === 6
-              || (finderRow >= 2 && finderRow <= 4 && finderCol >= 2 && finderCol <= 4);
-            const value = inFinder ? finderPixel : (seed + row * 97 + col * 131 + row * col) % 11 % 2 === 0;
-            return <span className={`qr-cell${value ? ' active' : ''}`} key={index} />;
-          })}
-        </div>
-      )}
+        <img className="qr-image" src={dataUrl} alt={`QR code to open excuse letter ${letterId}`} />
+      ) : null}
+      {generationError && <p className="qr-error" role="alert">{generationError}</p>}
+      <a className="qr-link" href={letterUrl}>Open letter {letterId}</a>
+      <span className="qr-note">Sign in to Securitres; normal letter-access permissions apply.</span>
     </div>
   );
 }
@@ -363,6 +358,7 @@ export default function App() {
   const [deanDecisionBusy, setDeanDecisionBusy] = useState(false);
   const [deanDecisionError, setDeanDecisionError] = useState('');
   const [deanDecisionSuccess, setDeanDecisionSuccess] = useState('');
+  const [deanNotificationStates, setDeanNotificationStates] = useState({});
   const [authStatus, setAuthStatus] = useState('checking-session');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -384,6 +380,7 @@ export default function App() {
   const studentEvidenceRequestId = useRef(0);
   const deanDetailRequestId = useRef(0);
   const deanEvidenceRequestId = useRef(0);
+  const handledDeepLinkId = useRef('');
   const displayName = profile?.full_name || authUser?.email || 'University user';
   const displayInitials = initials(displayName);
   const visibleLetters = profileRole === 'student'
@@ -556,6 +553,36 @@ export default function App() {
   }, [profileRole, deanRefreshVersion]);
 
   useEffect(() => {
+    if (profileRole === 'dean' && deanLettersStatus !== 'ready') return;
+    if (profileRole === 'student' && studentLettersStatus !== 'ready') return;
+    if (profileRole !== 'dean' && profileRole !== 'student') return;
+    const url = new URL(window.location.href);
+    const letterId = url.searchParams.get('letter');
+    if (!letterId || handledDeepLinkId.current === letterId) return;
+
+    handledDeepLinkId.current = letterId;
+    url.searchParams.delete('letter');
+    window.history.replaceState({}, '', url);
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(letterId)) {
+      if (profileRole === 'dean') {
+        setDeanDetailError('The letter link is invalid. Open the request from your Dean dashboard.');
+        setCurrentLetterId(letterId);
+        setDeanDetailStatus('error');
+        setDeanRefreshVersion((version) => version + 1);
+      } else {
+        setStudentDetailError('The letter link is invalid. Open a letter from your records.');
+        setCurrentLetterId(letterId);
+        setStudentDetailStatus('error');
+      }
+      return;
+    }
+
+    if (profileRole === 'dean') setDeanRefreshVersion((version) => version + 1);
+    void openLetter(letterId);
+  }, [profileRole, deanLettersStatus, studentLettersStatus]);
+
+  useEffect(() => {
     let active = true;
     const requestId = ++studentEvidenceRequestId.current;
     if (profileRole !== 'student' || !studentDetail?.id) {
@@ -715,6 +742,31 @@ export default function App() {
         }
         setDeanDetail(detail);
         setDeanDetailStatus('ready');
+        if (detail.status !== 'pending') {
+          try {
+            const notification = await getStudentDecisionNotification(id, detail.status);
+            if (requestId !== deanDetailRequestId.current) return;
+            setDeanNotificationStates((current) => ({
+              ...current,
+              [id]: notification?.status === 'sent'
+                ? { status: 'sent', message: 'The student email was sent.' }
+                : notification?.status === 'sending'
+                  ? { status: 'in_progress', message: 'The student email is being processed.' }
+                  : notification?.status === 'failed'
+                    ? { status: 'failed', message: 'The previous student email attempt failed. You can retry it.' }
+                    : { status: 'not_sent', message: 'No student email attempt is recorded. You can send it now.' },
+            }));
+          } catch {
+            if (requestId !== deanDetailRequestId.current) return;
+            setDeanNotificationStates((current) => ({
+              ...current,
+              [id]: {
+                status: 'failed',
+                message: 'Could not load the previous email status. You can safely retry the student email.',
+              },
+            }));
+          }
+        }
       } catch (error) {
         if (requestId !== deanDetailRequestId.current) return;
         setDeanDetailError(reviewDataFailureMessage(error));
@@ -811,6 +863,12 @@ export default function App() {
       setDeanRefreshVersion((version) => version + 1);
       showToast(`Letter ${decision}.`);
 
+      setDeanNotificationStates((current) => ({
+        ...current,
+        [letterId]: { status: 'sending', message: 'Sending the student email…' },
+      }));
+      void deliverStudentDecisionNotification(letterId);
+
       try {
         const refreshedDetail = await getDeanLetterDetails(letterId);
         if (requestId === deanDetailRequestId.current && refreshedDetail) {
@@ -825,6 +883,44 @@ export default function App() {
       setDeanDecisionError(reviewDataFailureMessage(error));
     } finally {
       setDeanDecisionBusy(false);
+    }
+  }
+
+  async function retryDeanStudentNotification() {
+    const letterId = deanDetail?.id;
+    const notificationState = deanNotificationStates[letterId];
+    if (profileRole !== 'dean' || !letterId || deanDetail.status === 'pending'
+        || notificationState?.status === 'sending') return;
+
+    setDeanNotificationStates((current) => ({
+      ...current,
+      [letterId]: { status: 'sending', message: 'Retrying the student email…' },
+    }));
+    await deliverStudentDecisionNotification(letterId);
+  }
+
+  async function deliverStudentDecisionNotification(letterId) {
+    try {
+      const notification = await sendStudentDecisionNotification(letterId);
+      setDeanNotificationStates((current) => ({
+        ...current,
+        [letterId]: notification.inProgress
+          ? { status: 'in_progress', message: 'The student email is already being processed. You can check again shortly.' }
+          : {
+            status: 'sent',
+            message: notification.alreadySent
+              ? 'The student email was already sent.'
+              : 'The student email was sent.',
+          },
+      }));
+    } catch (error) {
+      setDeanNotificationStates((current) => ({
+        ...current,
+        [letterId]: {
+          status: 'failed',
+          message: error.message || 'The decision was saved, but the student email could not be sent.',
+        },
+      }));
     }
   }
 
@@ -1209,7 +1305,7 @@ export default function App() {
                   {studentSubmitError && <p className="student-data-error" role="alert">{studentSubmitError}</p>}
                   <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')} disabled={studentSubmitting}>Cancel</button><button className="primary" type="submit" disabled={!profile?.program_id || studentSubmitting || Boolean(studentSubmissionFileError) || studentCoursesStatus !== 'ready' || studentCourses.length === 0}>{studentSubmitting ? 'Submitting…' : 'Submit excuse letter'}</button></div>
                 </form>
-                <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await review</strong>The request remains pending until it is reviewed in a later phase.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
+                <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await the daily reminder</strong>The Dean receives one daily email summary of pending letters assigned to their programs.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
               </div>
             </section>}
           </div>
@@ -1234,6 +1330,7 @@ export default function App() {
                 {activeLetter && <section className="status-history"><h3>Status history</h3>{studentDetail.statusEvents.length
                   ? <ol>{studentDetail.statusEvents.map((event) => <li key={event.id}><strong>{event.old_status} → {event.new_status}</strong><time>{formatDateTime(event.created_at)}</time>{event.comment && <p>{event.comment}</p>}</li>)}</ol>
                   : <p>No status changes have been recorded yet. A history entry is created when the status changes.</p>}</section>}
+                {activeLetter && <div className="qr-center"><QRCode letterId={activeLetter.id} /></div>}
                 {activeLetter && <section className="student-evidence">
                   <div className="student-evidence-heading"><h3>Evidence</h3>{studentEvidenceStatus !== 'idle' && <button className="secondary" type="button" disabled={studentEvidenceStatus === 'loading'} onClick={refreshStudentEvidence}>Refresh</button>}</div>
                   {studentEvidenceStatus === 'loading' && <p className="student-detail-message" role="status">Loading evidence…</p>}
@@ -1292,15 +1389,24 @@ export default function App() {
                 {deanDetail && <section className="status-history"><h3>Status history</h3>{deanDetail.statusEvents.length
                   ? <ol>{deanDetail.statusEvents.map((event) => <li key={event.id}><strong>{event.old_status} → {event.new_status}</strong><time>{formatDateTime(event.created_at)}</time>{event.comment && <p>{event.comment}</p>}</li>)}</ol>
                   : <p>No status changes have been recorded yet.</p>}</section>}
+                {deanDetail && <div className="qr-center"><QRCode letterId={deanDetail.id} /></div>}
                 {deanDecisionError && <p className="student-data-error" role="alert">{deanDecisionError}</p>}
                 {deanDecisionSuccess && <p className="student-evidence-success" role="status">{deanDecisionSuccess}</p>}
+                {deanDetail && deanNotificationStates[deanDetail.id] && (
+                  <p
+                    className={deanNotificationStates[deanDetail.id].status === 'failed' ? 'student-data-error' : 'student-evidence-success'}
+                    role={deanNotificationStates[deanDetail.id].status === 'failed' ? 'alert' : 'status'}
+                  >
+                    {deanNotificationStates[deanDetail.id].message}
+                  </p>
+                )}
               </div>
               {deanDetail?.status === 'pending' && deanDetailStatus === 'ready'
                 ? <div className="modal-actions dean-decision-actions">
                     <div className="comment-field"><label htmlFor="dean-decision-comment">Optional decision comment</label><textarea id="dean-decision-comment" placeholder="Add a note for the student" value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} disabled={deanDecisionBusy} /></div>
                     <div className="action-right"><button className="danger" onClick={() => decideDeanLetter('disapproved')} type="button" disabled={deanDecisionBusy}>{deanDecisionBusy ? 'Saving…' : 'Disapprove'}</button><button className="approve" onClick={() => decideDeanLetter('approved')} type="button" disabled={deanDecisionBusy}>{deanDecisionBusy ? 'Saving…' : 'Approve'}</button></div>
                   </div>
-                : <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{deanDetail?.status === 'pending' ? 'Decision unavailable until details finish loading.' : 'This letter is no longer pending review.'}</span></div>}
+                : <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{deanDetail?.status === 'pending' ? 'Decision unavailable until details finish loading.' : 'This letter is no longer pending review.'}</span>{deanDetail && ['failed', 'not_sent', 'in_progress'].includes(deanNotificationStates[deanDetail.id]?.status) && <button className="secondary" onClick={retryDeanStudentNotification} type="button">{deanNotificationStates[deanDetail.id].status === 'not_sent' ? 'Send student email' : deanNotificationStates[deanDetail.id].status === 'in_progress' ? 'Check student email' : 'Retry student email'}</button>}</div>}
             </>
           ) : activeLetter && (
             <>
@@ -1312,7 +1418,7 @@ export default function App() {
                 <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{activeLetter.reason}</div></div>
               </div>
               {activeLetter.comment && <div className="comment-box"><strong>Dean’s comment</strong><br />{activeLetter.comment}</div>}
-              <div className="qr-center"><QRCode letter={activeLetter} /></div>
+
               </div>
               <div className="modal-actions"><button className="secondary" onClick={closeLetter} type="button">Close</button><span className="modal-hint">{activeLetter.status === 'Approved' ? 'Visible to assigned professor' : activeLetter.status === 'Pending' ? 'Awaiting Dean review' : 'See the comment above for next steps'}</span></div>
             </>
