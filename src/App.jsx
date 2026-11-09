@@ -1574,7 +1574,7 @@ export default function App() {
             <p>{isSupabaseConfigured
               ? 'Sign in with your university account.'
               : 'Sign-in is unavailable until Supabase is configured.'}</p>
-            <div className="field"><label htmlFor="login-email">University email</label><input id="login-email" name="email" type="email" autoComplete="username" required disabled={!isSupabaseConfigured || authLoading} placeholder="name@udu.ph" /></div>
+            <div className="field"><label htmlFor="login-email">University email</label><input id="login-email" name="email" type="email" autoComplete="username" required disabled={!isSupabaseConfigured || authLoading} placeholder="example@ua.edu.ph" /></div>
             <div className="field"><label htmlFor="login-password">Password</label><input id="login-password" name="password" type="password" autoComplete="current-password" required disabled={!isSupabaseConfigured || authLoading} placeholder="Enter your password" /></div>
             <button className="primary login-submit" type="submit" disabled={!isSupabaseConfigured || authLoading}>{authLoading ? 'Signing in…' : 'Sign in'}</button>
             {authError && <p className="login-error" role="alert">{authError}</p>}
