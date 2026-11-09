@@ -55,7 +55,7 @@ const seedLetters = [
 ];
 
 const seedNotifications = [
-  { id: 'n1', user: 'Prof. Elena Cruz', role: 'professor', email: 'elena.prof@udu.ph', message: 'Approved excuse letter for Mika Santos is ready to review.', createdAt: '2026-10-17' },
+  { id: 'n1', user: 'Prof. Elena Cruz', role: 'professor', email: 'elena.prof@edu.ph', message: 'Approved excuse letter for Mika Santos is ready to review.', createdAt: '2026-10-17' },
 ];
 
 function readStored(key, fallback) {
