@@ -2,11 +2,17 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServiceSupabaseClient } from './_lib/create-service-supabase-client.js';
 import nodemailer from 'nodemailer';
 
+// Scheduled job: claim each eligible Dean's daily digest, send it, then record the outcome.
 const response = (res, status, body) => res.status(status).json(body);
 
+// Compare equal-length secret bytes with a timing-safe primitive.
 function isAuthorized(req, cronSecret) {
-  const provided = req.headers.authorization?.match(/^Bearer ([^\s]+)$/i)?.[1];
-  if (!provided) return false;
+  const authorization = req.headers.authorization;
+  const match = typeof authorization === 'string'
+    ? authorization.match(/^Bearer ([^\s]+)$/i)
+    : null;
+  if (!match || match[0] !== authorization) return false;
+  const provided = match[1];
 
   const providedBytes = Buffer.from(provided);
   const expectedBytes = Buffer.from(cronSecret);
@@ -14,6 +20,7 @@ function isAuthorized(req, cronSecret) {
     && timingSafeEqual(providedBytes, expectedBytes);
 }
 
+// Use the University timezone so the database's per-day deduplication key matches the email schedule.
 function getManilaDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Manila',
@@ -25,6 +32,7 @@ function getManilaDate(now = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+// Reject non-HTTPS production URLs before placing them in notification email content.
 function getAppOrigin(value) {
   const url = new URL(value);
   if (url.protocol !== 'https:' && url.hostname !== 'localhost') {
@@ -33,11 +41,13 @@ function getAppOrigin(value) {
   return url.origin;
 }
 
+// Keep provider error text out of logs and database notification records.
 function safeErrorCode(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
   return /^[A-Z0-9_-]{1,32}$/i.test(code) ? code : 'UNKNOWN';
 }
 
+// Nodemailer handles the SMTP connection; credentials are read only on the server.
 function createTransporter(gmailUser, gmailAppPassword) {
   return nodemailer.createTransport({
     service: 'gmail',
@@ -48,9 +58,17 @@ function createTransporter(gmailUser, gmailAppPassword) {
   });
 }
 
+// Send a count-only reminder; the digest does not include letter reasons or decision remarks.
 async function sendDigest(transporter, recipient, pendingCount, deanPortalUrl) {
-  const pendingText = `You currently have ${pendingCount} pending excuse letter${pendingCount === 1 ? '' : 's'} awaiting your review.`;
-  const safeCount = String(pendingCount);
+  const pendingText = pendingCount === 0
+    ? 'No letters are awaiting your review right now.'
+    : `You currently have ${pendingCount} pending excuse letter${pendingCount === 1 ? '' : 's'} awaiting your review.`;
+  const reviewPrompt = pendingCount === 0
+    ? 'Please check the Dean dashboard for updates.'
+    : 'Please log in to Securitres to review and process your pending submissions.';
+  const callToAction = pendingCount === 0
+    ? 'Open Dean dashboard'
+    : 'View pending excuse letters';
 
   await transporter.sendMail({
     from: `Securitres Notification System <${process.env.GMAIL_USER}>`,
@@ -63,7 +81,7 @@ async function sendDigest(transporter, recipient, pendingCount, deanPortalUrl) {
       '',
       pendingText,
       '',
-      'Please log in to Securitres to review and process your pending submissions.',
+      reviewPrompt,
       deanPortalUrl,
       '',
       'Thank you!',
@@ -80,12 +98,10 @@ async function sendDigest(transporter, recipient, pendingCount, deanPortalUrl) {
             <h1 style="margin:22px 0 12px;font-size:24px;color:#08285f">Daily pending letter reminder</h1>
             <p style="font-size:16px;line-height:1.6">Good day, Dean!</p>
             <p style="font-size:15px;line-height:1.6">This is your daily reminder from Securitres.</p>
-            <p style="margin:24px 0;padding:18px;background:#e4ebf7;border-radius:8px;font-size:18px;line-height:1.5">
-              You currently have <strong>${safeCount} pending excuse letter${pendingCount === 1 ? '' : 's'}</strong> awaiting your review.
-            </p>
-            <p style="font-size:14px;line-height:1.6">Please log in to Securitres to review and process your pending submissions.</p>
+            <p style="margin:24px 0;padding:18px;background:#e4ebf7;border-radius:8px;font-size:18px;line-height:1.5">${pendingText}</p>
+            <p style="font-size:14px;line-height:1.6">${reviewPrompt}</p>
             <p style="margin:28px 0">
-              <a href="${deanPortalUrl}" style="display:inline-block;padding:13px 20px;border-radius:6px;background:#123c7a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700">View pending excuse letters</a>
+              <a href="${deanPortalUrl}" style="display:inline-block;padding:13px 20px;border-radius:6px;background:#123c7a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700">${callToAction}</a>
             </p>
             <p style="font-size:14px;line-height:1.6">Thank you!</p>
             <p style="margin:24px 0 0;color:#68756d;font-size:12px;line-height:1.6">Securitres Notification System<br>University of the Assumption</p>
@@ -96,6 +112,7 @@ async function sendDigest(transporter, recipient, pendingCount, deanPortalUrl) {
   });
 }
 
+// The claim token prevents a stale worker from overwriting a newer retry's result.
 async function finishClaim(supabase, claim, digestDate, status, errorMessage) {
   try {
     const { data: recorded, error } = await supabase.rpc('finish_dean_daily_digest', {
@@ -116,6 +133,7 @@ async function finishClaim(supabase, claim, digestDate, status, errorMessage) {
   }
 }
 
+// Vercel invokes this endpoint on its configured cron schedule.
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -151,16 +169,23 @@ export default async function handler(req, res) {
 
   const digestDate = getManilaDate();
   const supabase = createServiceSupabaseClient(supabaseUrl, serviceRoleKey);
-  const { data: claims, error: claimError } = await supabase.rpc('claim_dean_daily_digests', {
-    p_digest_date: digestDate,
-  });
+  let claimResult;
+  try {
+    claimResult = await supabase.rpc('claim_dean_daily_digests', {
+      p_digest_date: digestDate,
+    });
+  } catch (error) {
+    console.error('Could not claim the daily Dean digest deliveries.', { code: safeErrorCode(error) });
+    return response(res, 500, { error: 'Could not prepare daily digest delivery.' });
+  }
+  const { data: claims, error: claimError } = claimResult;
   if (claimError) {
-    console.error('Could not claim the daily Dean digest deliveries.', { code: claimError.code });
+    console.error('Could not claim the daily Dean digest deliveries.', { code: safeErrorCode(claimError) });
     return response(res, 500, { error: 'Could not prepare daily digest delivery.' });
   }
 
   if (!claims?.length) {
-    console.info('Daily Dean digest found no eligible pending-letter recipients.');
+    console.info('Daily Dean digest found no claimable deliveries.');
     return response(res, 200, { digestDate, sent: 0, failed: 0 });
   }
 
