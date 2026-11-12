@@ -28,6 +28,11 @@ const letterSelection = `
     program
   )
 `;
+const letterDetailSelection = `${letterSelection},
+  contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey (
+    parent_guardian_phone
+  )
+`;
 
 async function getAuthenticatedDean() {
   const client = getSupabaseClient();
@@ -70,7 +75,7 @@ export async function getDeanLetterDetails(letterId) {
   const client = await getAuthenticatedDean();
   const { data: letter, error: letterError } = await client
     .from('excuse_letters')
-    .select(letterSelection)
+    .select(letterDetailSelection)
     .eq('id', letterId)
     .maybeSingle();
 

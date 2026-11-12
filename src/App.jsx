@@ -133,7 +133,7 @@ function toStudentLetterView(letter, profile, authUser) {
     email: authUser?.email || '',
     course: courseName,
     professor: '',
-    parentContact: '',
+    parentContact: letter.contact?.parent_guardian_phone || '',
     dateFrom: letter.absence_start,
     dateTo: letter.absence_end,
     reason: letter.reason,
@@ -157,6 +157,7 @@ function toDeanLetterView(letter) {
       ? `${course.course_code} · ${course.course_name}${course.section ? ` (${course.section})` : ''}`
       : 'Course unavailable',
     professor: professor?.full_name || 'Not assigned',
+    parentContact: letter.contact?.parent_guardian_phone || '',
     dateFrom: letter.absence_start,
     dateTo: letter.absence_end,
     reason: letter.reason,
@@ -183,10 +184,24 @@ function toProfessorLetterView(letter) {
   };
 }
 
+function parentContactSchemaFailureMessage(error) {
+  const message = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  const missingContactFunction = (error?.code === 'PGRST202' || error?.code === '42883')
+    && message.includes('create_student_excuse_letter');
+  const missingContactRelation = ['PGRST200', '42P01'].includes(error?.code)
+    && message.includes('excuse_letter_contacts');
+
+  return missingContactFunction || missingContactRelation
+    ? 'Parent/guardian contact support is not enabled in the database yet. Apply migration 20261112180000_parent_guardian_contact.sql, then retry.'
+    : '';
+}
+
 function studentDataFailureMessage(error) {
   if (import.meta.env.DEV) console.error('Student excuse-letter request failed.', error);
   if (error instanceof StudentLetterSubmissionError) return error.message;
   if (error instanceof EvidenceUploadError) return error.message;
+  const parentContactMessage = parentContactSchemaFailureMessage(error);
+  if (parentContactMessage) return parentContactMessage;
   if (error?.code === '42501' || error?.code === 'PGRST301') {
     return 'You do not have permission to access this student data. Refresh your session or contact support.';
   }
@@ -212,6 +227,8 @@ function professorDataFailureMessage(error) {
 
 function reviewDataFailureMessage(error) {
   if (import.meta.env.DEV) console.error('Dean review request failed.', error);
+  const parentContactMessage = parentContactSchemaFailureMessage(error);
+  if (parentContactMessage) return parentContactMessage;
   if (error?.code === '42501' || error?.code === 'PGRST301') {
     return 'You do not have permission to review this letter. Refresh your session or contact support.';
   }
@@ -1412,6 +1429,7 @@ export default function App() {
     const absenceStart = String(data.get('absenceStart') || '');
     const absenceEnd = String(data.get('absenceEnd') || '');
     const reason = String(data.get('reason') || '').trim();
+    const parentGuardianPhone = String(data.get('parentGuardianPhone') || '').trim();
     setStudentSubmitError('');
     setStudentSubmissionNotice('');
     setStudentSubmitProgress('');
@@ -1420,8 +1438,12 @@ export default function App() {
       setStudentSubmitError('Select a course in which you are enrolled.');
       return;
     }
-    if (!absenceStart || !absenceEnd || !reason) {
-      setStudentSubmitError('Complete the course, absence dates, and reason fields.');
+    if (!absenceStart || !absenceEnd || !reason || !parentGuardianPhone) {
+      setStudentSubmitError('Complete the course, absence dates, reason, and parent/guardian phone fields.');
+      return;
+    }
+    if (parentGuardianPhone.length > 40) {
+      setStudentSubmitError('The parent/guardian phone number must be 40 characters or fewer.');
       return;
     }
     if (absenceEnd < absenceStart) {
@@ -1447,12 +1469,12 @@ export default function App() {
     setStudentSubmitProgress('Creating your excuse letter…');
     try {
       const createdLetter = await createStudentLetterWithEvidence({
-        studentId: authUser.id,
         programId: profile.program_id,
         courseId,
         absenceStart,
         absenceEnd,
         reason,
+        parentGuardianPhone,
         enrolledCourses: studentCourses,
         evidenceFiles: studentSubmissionFiles,
         onEvidenceProgress: (current, total) => {
@@ -1729,7 +1751,7 @@ export default function App() {
             {screen === 'submit' && profileRole === 'student' && <section className="screen active"><div className="page-heading"><div><div className="eyebrow">Student services · New request</div><h1>Submit an excuse letter</h1><p className="subtitle">Choose an enrolled course and enter the dates and reason for your absence.</p></div></div>
               <div className="letter-layout">
                 <form className="panel form-panel" onSubmit={handleSubmitLetter}>
-                  <div className="form-section"><h2 className="section-title">Student account</h2><p className="form-account">{profile?.full_name || authUser.email}{profile?.student_number ? ` · ${profile.student_number}` : ''}</p><p className="field-hint">Your signed-in account is used as the owner of this request.</p></div>
+                  <div className="form-section"><h2 className="section-title">Student account</h2><p className="form-account">{profile?.full_name || authUser.email}{profile?.student_number ? ` · ${profile.student_number}` : ''}</p><p className="field-hint">Your signed-in account is used as the owner of this request.</p><div className="field"><label htmlFor="parent-guardian-phone">Parent/guardian phone number *</label><input id="parent-guardian-phone" name="parentGuardianPhone" type="tel" inputMode="tel" autoComplete="tel" maxLength={40} required placeholder="Enter a contact number" disabled={!profile?.program_id || studentSubmitting} /></div></div>
                   <div className="form-section"><h2 className="section-title">Class and absence</h2><div className="form-grid">
                     <div className="field full"><label htmlFor="course-id">Enrolled course / class *</label><select id="course-id" name="courseId" required disabled={!profile?.program_id || studentCoursesStatus !== 'ready' || studentCourses.length === 0 || studentSubmitting} defaultValue=""><option value="" disabled>{studentCoursesStatus === 'loading' ? 'Loading your enrolled courses…' : studentCoursesStatus === 'error' ? 'Courses could not be loaded' : studentCourses.length === 0 ? 'No enrolled courses found' : 'Choose an enrolled course'}</option>{studentCourses.map((course) => <option key={course.id} value={course.id}>{course.course_code} · {course.course_name}{course.section ? ` (${course.section})` : ''}</option>)}</select></div>
                     {studentCoursesStatus === 'error' && <div className="field full"><p className="student-data-error" role="alert">{studentCoursesError}</p><button className="secondary" type="button" onClick={() => setStudentRefreshVersion((version) => version + 1)}>Retry course loading</button></div>}
@@ -1757,7 +1779,7 @@ export default function App() {
                   {studentSubmitError && <p className="student-data-error" role="alert">{studentSubmitError}</p>}
                   <div className="form-actions"><button type="button" className="secondary" onClick={() => navigate('dashboard')} disabled={studentSubmitting}>Cancel</button><button className="primary" type="submit" disabled={!profile?.program_id || studentSubmitting || Boolean(studentSubmissionFileError) || studentCoursesStatus !== 'ready' || studentCourses.length === 0}>{studentSubmitting ? 'Submitting…' : 'Submit excuse letter'}</button></div>
                 </form>
-                <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await the daily reminder</strong>The Dean receives one daily email summary of pending letters assigned to their programs.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
+                <aside className="panel side-note"><h3>What happens next</h3><p>Your request is saved with a pending status. You can check its current status and any later updates from your letter list.</p><div className="steps"><div className="step"><div className="step-number">1</div><div><strong>Submit your request</strong>Your account, parent/guardian contact, enrolled course, absence dates, and reason are recorded.</div></div><div className="step"><div className="step-number">2</div><div><strong>Await the daily reminder</strong>The Dean receives one daily email summary of pending letters assigned to their programs.</div></div><div className="step"><div className="step-number">3</div><div><strong>Check your records</strong>Open the letter to review its status history.</div></div></div></aside>
               </div>
             </section>}
           </div>
@@ -1774,6 +1796,7 @@ export default function App() {
                 {activeLetter && <div className="detail-grid">
                   <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div>
                   <Detail label="Course" value={activeLetter.course} />
+                  <Detail label="Parent/guardian phone" value={activeLetter.parentContact} />
                   <Detail label="Absence dates" value={dateRange(activeLetter)} />
                   <Detail label="Submitted" value={formatDateTime(activeLetter.submitted)} />
                   <div className="detail-full"><div className="detail-label">Reason</div><div className="detail-value">{activeLetter.reason}</div></div>
@@ -1819,6 +1842,7 @@ export default function App() {
                   <Detail label="Student" value={deanDetail.student?.full_name} />
                   <Detail label="Student number" value={deanDetail.student?.student_number} />
                   <Detail label="Program" value={deanDetail.student?.program} />
+                  <Detail label="Parent/guardian phone" value={activeLetter?.parentContact} />
                   <Detail label="Course / section" value={activeLetter?.course} />
                   <Detail label="Professor" value={activeLetter?.professor} />
                   <div><div className="detail-label">Status</div><div className="detail-value"><Status value={activeLetter.status} /></div></div>

@@ -15,6 +15,11 @@ const letterSelection = `
   created_at,
   ${courseSelection}
 `;
+const letterDetailSelection = `${letterSelection},
+  contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey (
+    parent_guardian_phone
+  )
+`;
 
 export async function getStudentCourses(studentId) {
   const { data, error } = await getSupabaseClient()
@@ -44,26 +49,39 @@ function requireAssignedProgram(programId) {
   }
 }
 
-export async function createStudentLetter({ studentId, programId, courseId, absenceStart, absenceEnd, reason, enrolledCourses }) {
+export async function createStudentLetter({
+  programId,
+  courseId,
+  absenceStart,
+  absenceEnd,
+  reason,
+  parentGuardianPhone,
+  enrolledCourses,
+}) {
   requireAssignedProgram(programId);
   if (!enrolledCourses.some((course) => course.id === courseId)) {
     throw new Error('Choose a course in which you are currently enrolled.');
   }
+  const normalizedParentGuardianPhone = String(parentGuardianPhone || '').trim();
+  if (!normalizedParentGuardianPhone || normalizedParentGuardianPhone.length > 40) {
+    throw new Error('Enter a parent or guardian phone number of 40 characters or fewer.');
+  }
 
   const { data, error } = await getSupabaseClient()
-    .from('excuse_letters')
-    .insert({
-      student_id: studentId,
-      course_id: courseId,
-      absence_start: absenceStart,
-      absence_end: absenceEnd,
-      reason,
+    .rpc('create_student_excuse_letter', {
+      p_course_id: courseId,
+      p_absence_start: absenceStart,
+      p_absence_end: absenceEnd,
+      p_reason: reason,
+      p_parent_guardian_phone: normalizedParentGuardianPhone,
     })
-    .select(letterSelection)
     .single();
 
   if (error) throw error;
-  return data;
+  return {
+    ...data,
+    course_offerings: enrolledCourses.find((course) => course.id === courseId),
+  };
 }
 
 export class StudentLetterSubmissionError extends Error {
@@ -83,12 +101,12 @@ export class StudentLetterSubmissionError extends Error {
 }
 
 export async function createStudentLetterWithEvidence({
-  studentId,
   programId,
   courseId,
   absenceStart,
   absenceEnd,
   reason,
+  parentGuardianPhone,
   enrolledCourses,
   evidenceFiles = [],
   onEvidenceProgress,
@@ -101,12 +119,12 @@ export async function createStudentLetterWithEvidence({
   }
 
   const letter = await createStudentLetter({
-    studentId,
     programId,
     courseId,
     absenceStart,
     absenceEnd,
     reason,
+    parentGuardianPhone,
     enrolledCourses,
   });
 
@@ -132,7 +150,7 @@ export async function createStudentLetterWithEvidence({
 export async function getStudentLetterDetails({ studentId, letterId }) {
   const { data: letter, error: letterError } = await getSupabaseClient()
     .from('excuse_letters')
-    .select(letterSelection)
+    .select(letterDetailSelection)
     .eq('id', letterId)
     .eq('student_id', studentId)
     .maybeSingle();

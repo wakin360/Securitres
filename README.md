@@ -92,6 +92,8 @@ After Supabase Auth restores or establishes a session, the app looks up the matc
 
 Students without `program_id` see a setup message and cannot open or submit a new letter in the UI; this frontend check is not an authorization boundary.
 
+Each new excuse-letter submission requires a parent/guardian phone number. It is stored separately from the letter so only the owning Student and a Dean authorized for that letter can read it; Professors cannot access the contact table. Apply `supabase/migrations/20261112180000_parent_guardian_contact.sql` before using this field.
+
 ## Vercel deployment
 
 Import this repository in Vercel using the project root. Use `npm ci` as the install command, `npm run build` as the build command, and `dist` as the output directory. `vite.config.js` includes the role redirect pages in the build, and `vercel.json` retains the clean role URLs and baseline security headers. This deploys the workflow demo, not production access control.
