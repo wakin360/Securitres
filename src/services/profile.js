@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { getSecureData } from './secureApi.js';
 
 export const profileRoles = ['student', 'professor', 'dean'];
 
@@ -7,12 +8,9 @@ export async function getProfileForUser(userId) {
     throw new Error('An authenticated user ID is required to load a profile.');
   }
 
-  const { data, error } = await getSupabaseClient()
-    .from('profiles')
-    .select('id, role, full_name, student_number, program, program_id')
-    .eq('id', userId)
-    .maybeSingle();
-
+  const client = getSupabaseClient();
+  const { data: { user }, error } = await client.auth.getUser();
   if (error) throw error;
-  return data;
+  if (!user || user.id !== userId) throw new Error('You can only load your own profile.');
+  return getSecureData('profile');
 }

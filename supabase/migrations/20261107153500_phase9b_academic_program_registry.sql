@@ -3,14 +3,8 @@ BEGIN;
 DO $migration$
 DECLARE
   v_count bigint;
-  v_student_count bigint;
-  v_professor_count bigint;
-  v_dean_count bigint;
-  v_student_role text;
-  v_student_program text;
   v_auth_update_columns text[];
   v_direct_auth_update_columns text[];
-  v_letter_differences bigint;
 BEGIN
   IF pg_catalog.to_regclass('public.academic_programs') IS NOT NULL
      OR pg_catalog.to_regclass('public.dean_program_assignments') IS NOT NULL THEN
@@ -60,42 +54,6 @@ BEGIN
       )
   ) <> 2 THEN
     RAISE EXCEPTION 'Phase 9B preflight failed: profiles must have exactly the two reviewed policies with unchanged definitions.';
-  END IF;
-
-  SELECT
-    count(*),
-    count(*) FILTER (WHERE role = 'student'),
-    count(*) FILTER (WHERE role = 'professor'),
-    count(*) FILTER (WHERE role = 'dean')
-  INTO v_count, v_student_count, v_professor_count, v_dean_count
-  FROM public.profiles;
-
-  IF v_count <> 3
-     OR v_student_count <> 1
-     OR v_professor_count <> 1
-     OR v_dean_count <> 1 THEN
-    RAISE EXCEPTION 'Phase 9B preflight failed: expected exactly three profiles with one student, one professor, and one Dean.';
-  END IF;
-
-  SELECT role, program
-  INTO v_student_role, v_student_program
-  FROM public.profiles
-  WHERE id = '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid;
-
-  IF v_student_role IS DISTINCT FROM 'student'
-     OR v_student_program IS DISTINCT FROM 'BS Information Technology' THEN
-    RAISE EXCEPTION 'Phase 9B preflight failed: the expected student profile or legacy program value does not match.';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public.profiles
-    WHERE id = 'ceae4f5d-9aa4-40e8-83d5-2c477baade61'::uuid
-      AND role = 'dean'
-      AND full_name = ''
-      AND program IS NULL
-  ) THEN
-    RAISE EXCEPTION 'Phase 9B preflight failed: the expected Dean profile state does not match.';
   END IF;
 
   SELECT count(*)
@@ -200,27 +158,6 @@ BEGIN
     RAISE EXCEPTION 'Phase 9B preflight failed: profiles has an unexpected direct PUBLIC or anon column UPDATE grant.';
   END IF;
 
-  WITH expected(letter_id, student_id, status) AS (
-    VALUES
-      ('0e9b3eb0-0372-45dd-8baa-603e75b62364'::uuid, '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid, 'approved'::text),
-      ('3baad9cf-eb4e-400c-a99d-68b8af59b655'::uuid, '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid, 'pending'::text),
-      ('4b46dbef-7636-4cab-bbc1-201b5e6b6336'::uuid, '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid, 'disapproved'::text),
-      ('5e6caf5a-b61a-4efc-83f2-14aeeca1862d'::uuid, '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid, 'approved'::text)
-  ),
-  actual AS (
-    SELECT id AS letter_id, student_id, status
-    FROM public.excuse_letters
-  ),
-  differences AS (
-    (SELECT * FROM expected EXCEPT SELECT * FROM actual)
-    UNION ALL
-    (SELECT * FROM actual EXCEPT SELECT * FROM expected)
-  )
-  SELECT count(*) INTO v_letter_differences FROM differences;
-
-  IF v_letter_differences <> 0 THEN
-    RAISE EXCEPTION 'Phase 9B preflight failed: the exact reviewed excuse-letter inventory changed.';
-  END IF;
 END
 $migration$;
 
@@ -434,28 +371,9 @@ REVOKE ALL PRIVILEGES ON TABLE public.academic_programs
 REVOKE ALL PRIVILEGES ON TABLE public.dean_program_assignments
   FROM PUBLIC, anon, authenticated, service_role;
 
+-- Student program_id values are provisioned separately; never infer them from profiles.program.
 INSERT INTO public.academic_programs (canonical_name)
 VALUES ('BS Information Technology');
-
-DO $migration$
-DECLARE
-  v_rows_updated bigint;
-BEGIN
-  UPDATE public.profiles AS p
-  SET program_id = ap.id
-  FROM public.academic_programs AS ap
-  WHERE p.id = '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid
-    AND p.role = 'student'
-    AND p.program = 'BS Information Technology'
-    AND p.program_id IS NULL
-    AND ap.canonical_name = 'BS Information Technology';
-
-  GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
-  IF v_rows_updated <> 1 THEN
-    RAISE EXCEPTION 'Phase 9B postcondition failed: expected exactly one student program backfill.';
-  END IF;
-END
-$migration$;
 
 COMMENT ON TABLE public.academic_programs IS
   'Canonical academic program registry. Names are immutable and all programs remain active during Phase 9B.';
@@ -475,17 +393,6 @@ BEGIN
          AND is_active IS TRUE
      ) THEN
     RAISE EXCEPTION 'Phase 9B postcondition failed: canonical program registry does not match expected state.';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public.profiles AS p
-    JOIN public.academic_programs AS ap ON ap.id = p.program_id
-    WHERE p.id = '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid
-      AND p.program = 'BS Information Technology'
-      AND ap.canonical_name = 'BS Information Technology'
-  ) THEN
-    RAISE EXCEPTION 'Phase 9B postcondition failed: student program_id backfill is absent or mismatched.';
   END IF;
 
   IF (SELECT count(*) FROM pg_catalog.pg_constraint

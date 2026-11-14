@@ -1,25 +1,8 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { getSecureData, postSecureData } from './secureApi.js';
 import { uploadStudentEvidence, validateEvidenceFile } from './studentEvidence.js';
 
 const courseSelection = 'course_offerings (id, course_code, course_name, section)';
-const letterSelection = `
-  id,
-  student_id,
-  course_id,
-  absence_start,
-  absence_end,
-  reason,
-  status,
-  dean_comment,
-  submitted_at,
-  created_at,
-  ${courseSelection}
-`;
-const letterDetailSelection = `${letterSelection},
-  contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey (
-    parent_guardian_phone
-  )
-`;
 
 export async function getStudentCourses(studentId) {
   const { data, error } = await getSupabaseClient()
@@ -33,14 +16,10 @@ export async function getStudentCourses(studentId) {
 }
 
 export async function getStudentLetters(studentId) {
-  const { data, error } = await getSupabaseClient()
-    .from('excuse_letters')
-    .select(letterSelection)
-    .eq('student_id', studentId)
-    .order('created_at', { ascending: false });
-
+  const { data: { user }, error } = await getSupabaseClient().auth.getUser();
   if (error) throw error;
-  return data;
+  if (!user || user.id !== studentId) throw new Error('You can only load your own letters.');
+  return getSecureData('student-letters');
 }
 
 function requireAssignedProgram(programId) {
@@ -67,17 +46,13 @@ export async function createStudentLetter({
     throw new Error('Enter a parent or guardian phone number of 40 characters or fewer.');
   }
 
-  const { data, error } = await getSupabaseClient()
-    .rpc('create_student_excuse_letter', {
-      p_course_id: courseId,
-      p_absence_start: absenceStart,
-      p_absence_end: absenceEnd,
-      p_reason: reason,
-      p_parent_guardian_phone: normalizedParentGuardianPhone,
-    })
-    .single();
-
-  if (error) throw error;
+  const data = await postSecureData('create-student-letter', {
+    courseId,
+    absenceStart,
+    absenceEnd,
+    reason,
+    parentGuardianPhone: normalizedParentGuardianPhone,
+  });
   return {
     ...data,
     course_offerings: enrolledCourses.find((course) => course.id === courseId),
@@ -148,22 +123,13 @@ export async function createStudentLetterWithEvidence({
 }
 
 export async function getStudentLetterDetails({ studentId, letterId }) {
-  const { data: letter, error: letterError } = await getSupabaseClient()
-    .from('excuse_letters')
-    .select(letterDetailSelection)
-    .eq('id', letterId)
-    .eq('student_id', studentId)
-    .maybeSingle();
-
-  if (letterError) throw letterError;
-  if (!letter) return null;
-
-  const { data: statusEvents, error: eventsError } = await getSupabaseClient()
-    .from('letter_status_events')
-    .select('id, old_status, new_status, comment, created_at')
-    .eq('letter_id', letter.id)
-    .order('created_at', { ascending: true });
-
-  if (eventsError) throw eventsError;
-  return { ...letter, statusEvents };
+  const { data: { user }, error } = await getSupabaseClient().auth.getUser();
+  if (error) throw error;
+  if (!user || user.id !== studentId) throw new Error('You can only load your own letters.');
+  try {
+    return await getSecureData('student-letters', { letterId });
+  } catch (requestError) {
+    if (requestError.status === 404) return null;
+    throw requestError;
+  }
 }

@@ -25,36 +25,13 @@ SELECT
       AND NOT attisdropped
   ) AS profiles_program_id_exists;
 
--- Exact reviewed profile count and role counts.
+-- Informational profile and role counts; no fixed profile population is required.
 SELECT
   count(*) AS total_profiles,
   count(*) FILTER (WHERE role = 'student') AS students,
   count(*) FILTER (WHERE role = 'professor') AS professors,
   count(*) FILTER (WHERE role = 'dean') AS deans
 FROM public.profiles;
-
--- Only the reviewed student and Dean fields needed for preflight.
-SELECT
-  p.id,
-  p.role,
-  p.program AS legacy_program,
-  pg_catalog.to_jsonb(p)->>'program_id' AS program_id
-FROM public.profiles AS p
-WHERE p.id = '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid;
-
-SELECT
-  id,
-  role,
-  CASE
-    WHEN full_name IS NULL THEN 'NULL'
-    WHEN full_name = '' THEN 'empty string'
-    WHEN full_name ~ '^[[:space:]]+$' THEN 'whitespace only'
-    ELSE 'other value'
-  END AS full_name_state,
-  full_name,
-  program
-FROM public.profiles
-WHERE id = 'ceae4f5d-9aa4-40e8-83d5-2c477baade61'::uuid;
 
 -- Exactly two profile policies, with their full definitions.
 SELECT
@@ -138,7 +115,8 @@ WHERE n.nspname IN ('public', 'securitres_private')
   )
 ORDER BY n.nspname, p.proname, p.oid::regprocedure::text;
 
--- Exact letter inventory guard inputs; this query does not reveal letter text.
-SELECT id, student_id, status
+-- Informational letter counts; no fixed letter inventory is required.
+SELECT status, count(*) AS letter_count
 FROM public.excuse_letters
-ORDER BY id;
+GROUP BY status
+ORDER BY status;

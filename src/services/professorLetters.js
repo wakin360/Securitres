@@ -1,27 +1,11 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { getSecureData } from './secureApi.js';
 
 const bucketName = 'excuse-evidence';
 const signedUrlLifetimeSeconds = 60;
 const pageSize = 500;
 const courseSelection = 'id, course_code, course_name, section';
-const letterSelection = `
-  id,
-  course_id,
-  absence_start,
-  absence_end,
-  reason,
-  status,
-  submitted_at,
-  decided_at,
-  course:course_offerings!excuse_letters_course_id_fkey (
-    id,
-    course_code,
-    course_name,
-    section
-  )
-`;
-
-export function createProfessorLetterService(getClient = getSupabaseClient) {
+export function createProfessorLetterService(getClient = getSupabaseClient, requestSecureData = getSecureData) {
   async function getAuthenticatedProfessor() {
     const client = getClient();
     const { data: { user }, error: authError } = await client.auth.getUser();
@@ -65,84 +49,39 @@ export function createProfessorLetterService(getClient = getSupabaseClient) {
   }
 
   async function getProfessorLetters() {
-    const { client, user } = await getAuthenticatedProfessor();
-    const courses = await getAssignedCourses(client, user.id);
-    const courseIds = courses.map((course) => course.id);
-    if (courseIds.length === 0) return [];
-
-    const letters = [];
-    for (let from = 0; ; from += pageSize) {
-      const { data, error } = await client
-        .from('excuse_letters')
-        .select(letterSelection)
-        .in('course_id', courseIds)
-        .eq('status', 'approved')
-        .order('decided_at', { ascending: false })
-        .order('id', { ascending: true })
-        .range(from, from + pageSize - 1);
-
-      if (error) throw error;
-      letters.push(...data);
-      if (data.length < pageSize) return letters;
-    }
+    await getAuthenticatedProfessor();
+    return requestSecureData('professor-letters');
   }
 
   async function getProfessorLetterDetails(letterId) {
     if (!letterId) throw new Error('A letter ID is required.');
 
-    const { client } = await getAuthenticatedProfessor();
-    const { data, error } = await client
-      .from('excuse_letters')
-      .select(letterSelection)
-      .eq('id', letterId)
-      .eq('status', 'approved')
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    await getAuthenticatedProfessor();
+    try {
+      return await requestSecureData('professor-letters', { letterId });
+    } catch (requestError) {
+      if (requestError.status === 404) return null;
+      throw requestError;
+    }
   }
 
   async function getProfessorLetterStudentIdentity(letterId) {
     if (!letterId) throw new Error('A letter ID is required.');
 
-    const { client } = await getAuthenticatedProfessor();
-    const { data, error } = await client.rpc(
-      'get_professor_approved_letter_student_identity',
-      { p_letter_id: letterId },
-    );
-
-    if (error) throw error;
-    const identity = Array.isArray(data) ? data[0] : null;
-    if (!identity) return null;
-
-    return {
-      full_name: identity.full_name,
-      student_number: identity.student_number,
-    };
+    await getAuthenticatedProfessor();
+    try {
+      return await requestSecureData('professor-identity', { letterId });
+    } catch (requestError) {
+      if (requestError.status === 404) return null;
+      throw requestError;
+    }
   }
 
   async function getProfessorEvidence(letterId) {
     if (!letterId) throw new Error('A letter ID is required.');
 
-    const { client } = await getAuthenticatedProfessor();
-    const { data: letter, error: letterError } = await client
-      .from('excuse_letters')
-      .select('id')
-      .eq('id', letterId)
-      .eq('status', 'approved')
-      .maybeSingle();
-
-    if (letterError) throw letterError;
-    if (!letter) throw new Error('The approved letter was not found or is not accessible.');
-
-    const { data, error } = await client
-      .from('excuse_evidence')
-      .select('id, letter_id, original_filename, mime_type, size_bytes, uploaded_at')
-      .eq('letter_id', letter.id)
-      .order('uploaded_at', { ascending: true });
-
-    if (error) throw error;
-    return data;
+    await getAuthenticatedProfessor();
+    return requestSecureData('professor-evidence', { letterId });
   }
 
   async function getProfessorEvidenceSignedUrl(evidenceId) {

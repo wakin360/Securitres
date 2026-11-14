@@ -7,10 +7,11 @@ import { ProfessorIdentityCell } from '../src/components/ProfessorIdentityCell.j
 
 const professorServiceSource = await readFile(new URL('../src/services/professorLetters.js', import.meta.url), 'utf8');
 const supabaseModuleUrl = `data:text/javascript,${encodeURIComponent("export function getSupabaseClient() { throw new Error('Use a test client.'); }")}`;
+const secureApiModuleUrl = `data:text/javascript,${encodeURIComponent("export function getSecureData() { throw new Error('Inject a test secure-data request.'); }")}`;
 const testableProfessorModule = professorServiceSource.replace(
   "'../lib/supabase.js'",
   JSON.stringify(supabaseModuleUrl),
-);
+).replace("'./secureApi.js'", JSON.stringify(secureApiModuleUrl));
 const { createProfessorLetterService } = await import(`data:text/javascript,${encodeURIComponent(testableProfessorModule)}`);
 const {
   getProfessorIdentityStatesForAccount,
@@ -38,18 +39,15 @@ function makeClient({
   userId = professorId,
   data = {},
   errors = {},
-  rpcResults = [],
+  secureResults = {},
+  secureErrors = {},
 } = {}) {
   const queries = [];
   const signedUrlRequests = [];
-  const rpcCalls = [];
+  const secureCalls = [];
   const client = {
     auth: {
       getUser: async () => ({ data: { user: userId ? { id: userId } : null }, error: null }),
-    },
-    rpc: async (name, args) => {
-      rpcCalls.push({ name, args });
-      return rpcResults.length ? rpcResults.shift() : { data: [], error: null };
     },
     storage: {
       from: (bucket) => ({
@@ -82,7 +80,19 @@ function makeClient({
       return builder;
     },
   };
-  return { client, queries, rpcCalls, signedUrlRequests, service: createProfessorLetterService(() => client) };
+  const requestSecureData = async (action, params) => {
+    secureCalls.push({ action, params });
+    if (secureErrors[action]) throw secureErrors[action];
+    return secureResults[action] ?? null;
+  };
+  return {
+    client,
+    queries,
+    secureCalls,
+    secureErrors,
+    signedUrlRequests,
+    service: createProfessorLetterService(() => client, requestSecureData),
+  };
 }
 
 test('Professor service loads only the authenticated Professor course assignments', async () => {
@@ -94,84 +104,80 @@ test('Professor service loads only the authenticated Professor course assignment
   assert.ok(queries.some((query) => query.table === 'course_offerings' && query.selection.includes('course_code')));
 });
 
-test('Professor service selects approved letters only from assigned course offerings', async () => {
-  const otherCourseLetter = { ...approvedLetter, id: 'other-course-letter', course_id: courseB.id };
-  const pendingLetter = { ...approvedLetter, id: 'pending-letter', status: 'pending' };
-  const rejectedLetter = { ...approvedLetter, id: 'rejected-letter', status: 'disapproved' };
-  const { service, queries } = makeClient({
-    data: {
-      course_offerings: [courseA, courseB],
-      excuse_letters: [approvedLetter, otherCourseLetter, pendingLetter, rejectedLetter],
-    },
+test('Professor service requests approved letters through the authorized server endpoint', async () => {
+  const { service, queries, secureCalls } = makeClient({
+    secureResults: { 'professor-letters': [approvedLetter] },
   });
 
   assert.deepEqual(await service.getProfessorLetters(), [approvedLetter]);
-  const letterQuery = queries.find((query) => query.table === 'excuse_letters');
-  assert.ok(letterQuery);
-  assert.ok(letterQuery.filters.length >= 2, 'letter query includes course assignment and approved-status constraints');
-  assert.match(letterQuery.selection, /course:course_offerings/);
-  assert.doesNotMatch(letterQuery.selection, /student:profiles|student_number|full_name/);
-});
-
-test('Professor service avoids a letter query when no courses are assigned', async () => {
-  const { service, queries } = makeClient({ data: { course_offerings: [] } });
-
-  assert.deepEqual(await service.getProfessorLetters(), []);
+  assert.deepEqual(secureCalls, [{ action: 'professor-letters', params: undefined }]);
   assert.equal(queries.some((query) => query.table === 'excuse_letters'), false);
 });
 
-test('Professor detail reads approved records only and does not expose decision operations', async () => {
-  const pendingLetter = { ...approvedLetter, status: 'pending' };
-  const { service, queries } = makeClient({
-    data: { excuse_letters: [pendingLetter] },
+test('Professor letter endpoint returns an empty list when no letters are assigned', async () => {
+  const { service, queries, secureCalls } = makeClient({
+    secureResults: { 'professor-letters': [] },
   });
 
-  assert.equal(await service.getProfessorLetterDetails(pendingLetter.id), null);
-  const detailQuery = queries.find((query) => query.table === 'excuse_letters');
-  assert.ok(detailQuery.filters.length >= 2);
+  assert.deepEqual(await service.getProfessorLetters(), []);
+  assert.equal(queries.some((query) => query.table === 'excuse_letters'), false);
+  assert.equal(secureCalls[0].action, 'professor-letters');
+});
+
+test('Professor detail uses the scoped server endpoint and exposes no decision operations', async () => {
+  const { service, queries, secureCalls } = makeClient({
+    secureResults: { 'professor-letters': approvedLetter },
+  });
+
+  assert.deepEqual(await service.getProfessorLetterDetails(approvedLetter.id), approvedLetter);
+  assert.deepEqual(secureCalls, [{ action: 'professor-letters', params: { letterId: approvedLetter.id } }]);
+  assert.equal(queries.some((query) => query.table === 'excuse_letters'), false);
   assert.equal(typeof service.getProfessorLetterStudentIdentity, 'function');
   assert.equal(service.approveLetter, undefined);
   assert.equal(service.rejectLetter, undefined);
   assert.equal(service.submitDeanDecision, undefined);
 });
 
-test('Professor identity lookup calls the scoped RPC with only the selected letter ID', async () => {
+test('Professor identity lookup calls the scoped encrypted-data endpoint', async () => {
   const identity = { full_name: 'Jordan Lee', student_number: '2024-0123' };
-  const { service, queries, rpcCalls } = makeClient({
-    rpcResults: [{ data: [identity], error: null }],
+  const { service, queries, secureCalls } = makeClient({
+    secureResults: { 'professor-identity': identity },
   });
 
   assert.deepEqual(await service.getProfessorLetterStudentIdentity(approvedLetter.id), identity);
-  assert.deepEqual(rpcCalls, [{
-    name: 'get_professor_approved_letter_student_identity',
-    args: { p_letter_id: approvedLetter.id },
+  assert.deepEqual(secureCalls, [{
+    action: 'professor-identity',
+    params: { letterId: approvedLetter.id },
   }]);
   const profileQueries = queries.filter((query) => query.table === 'profiles');
   assert.equal(profileQueries.length, 1);
   assert.equal(profileQueries[0].selection, 'role');
 });
 
-test('Professor identity lookup safely returns null when the scoped RPC returns no rows', async () => {
-  const { service, rpcCalls } = makeClient({ rpcResults: [{ data: [], error: null }] });
+test('Professor identity lookup safely returns null when the letter is not accessible', async () => {
+  const notFound = new Error('not found');
+  notFound.status = 404;
+  const { service, secureCalls } = makeClient({
+    secureErrors: { 'professor-identity': notFound },
+  });
 
   assert.equal(await service.getProfessorLetterStudentIdentity(approvedLetter.id), null);
-  assert.equal(rpcCalls.length, 1);
+  assert.equal(secureCalls.length, 1);
 });
 
-test('Professor identity RPC errors propagate and the caller can retry the lookup', async () => {
+test('Professor identity API errors propagate and the caller can retry the lookup', async () => {
   const failure = { code: '42501', message: 'not authorized' };
   const identity = { full_name: 'Jordan Lee', student_number: '2024-0123' };
-  const { service, rpcCalls } = makeClient({
-    rpcResults: [
-      { data: null, error: failure },
-      { data: [identity], error: null },
-    ],
+  const { service, secureCalls, secureErrors } = makeClient({
+    secureErrors: { 'professor-identity': failure },
+    secureResults: { 'professor-identity': identity },
   });
 
   await assert.rejects(service.getProfessorLetterStudentIdentity(approvedLetter.id), (error) => error === failure);
+  delete secureErrors['professor-identity'];
   assert.deepEqual(await service.getProfessorLetterStudentIdentity(approvedLetter.id), identity);
-  assert.equal(rpcCalls.length, 2);
-  assert.ok(rpcCalls.every((call) => call.args.p_letter_id === approvedLetter.id));
+  assert.equal(secureCalls.length, 2);
+  assert.ok(secureCalls.every((call) => call.params.letterId === approvedLetter.id));
 });
 
 test('Professor table identity state exposes successful RPC fields and rejects stale updates', () => {
@@ -315,8 +321,7 @@ test('Supabase errors are propagated instead of replaced with placeholder record
 test('evidence access errors remain visible to the caller', async () => {
   const failure = { code: '42501', message: 'evidence access denied' };
   const { service } = makeClient({
-    data: { excuse_letters: [{ id: approvedLetter.id, status: 'approved' }] },
-    errors: { excuse_evidence: failure },
+    secureErrors: { 'professor-evidence': failure },
   });
 
   await assert.rejects(service.getProfessorEvidence(approvedLetter.id), (error) => error === failure);
@@ -485,7 +490,7 @@ test('Professor UI has explicit loading, failure, empty, read-only, and identity
   assert.match(identityCell, /Loading…[\s\S]*?Could not load[\s\S]*?onRetry\(letterId\)[\s\S]*?Unavailable/);
   assert.match(app, /getProfessorIdentityStatesForAccount\(\s*professorTableIdentities,\s*authUser\?\.id/);
   assert.match(styles, /\.professor-table-wrap \{ max-width: 100%; \}/);
-  assert.match(styles, /\.professor-letters-table \{ min-width: 930px; \}/);
+  assert.match(styles, /\.professor-letters-table \{ min-width: 980px; table-layout: fixed; \}/);
   assert.match(app, /Read-only view\. Decisions remain with the Dean/);
   assert.match(app, /getProfessorLetterDetails\(id\)/);
   assert.match(app, /getProfessorLetterStudentIdentity\(letterId\)/);

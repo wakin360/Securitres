@@ -2,19 +2,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [app, studentLetters, deanReview, migration] = await Promise.all([
+const [app, studentLetters, secureDataApi, deanReview, migration, encryptionMigration] = await Promise.all([
   readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/studentLetters.js', import.meta.url), 'utf8'),
+  readFile(new URL('../api/secure-data.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/deanReview.js', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/migrations/20261112180000_parent_guardian_contact.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../supabase/migrations/20261113000000_encrypted_data_api.sql', import.meta.url), 'utf8'),
 ]);
 
 test('student submission requires and persists a parent or guardian phone number', () => {
   assert.match(app, /name="parentGuardianPhone" type="tel"[^>]*required/);
   assert.match(app, /data\.get\('parentGuardianPhone'\)/);
   assert.match(app, /parentGuardianPhone,\s*enrolledCourses: studentCourses/);
-  assert.match(studentLetters, /\.rpc\('create_student_excuse_letter'/);
-  assert.match(studentLetters, /p_parent_guardian_phone: normalizedParentGuardianPhone/);
+  assert.match(studentLetters, /postSecureData\('create-student-letter'/);
+  assert.match(secureDataApi, /p_parent_guardian_phone_envelope:\s*encryptText/);
+  assert.match(encryptionMigration, /create_student_excuse_letter_encrypted/);
 });
 
 test('contact details are readable by the owner and authorized Dean only', () => {
@@ -23,8 +26,9 @@ test('contact details are readable by the owner and authorized Dean only', () =>
   assert.match(selectPolicy, /letter\.student_id = \(SELECT auth\.uid\(\)\)/i);
   assert.match(selectPolicy, /can_dean_access_letter/);
   assert.doesNotMatch(selectPolicy, /professor/i);
-  assert.match(studentLetters, /contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey/);
-  assert.match(deanReview, /contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey/);
+  assert.match(secureDataApi, /contact:excuse_letter_contacts!excuse_letter_contacts_letter_id_fkey/);
+  assert.match(encryptionMigration, /REVOKE SELECT ON TABLE public\.excuse_letter_contacts FROM anon, authenticated/);
+  assert.match(deanReview, /getSecureData\('dean-letters'\)/);
 });
 
 test('letter and contact are created together through a guarded database function', () => {

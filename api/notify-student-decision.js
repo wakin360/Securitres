@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServiceSupabaseClient } from './_lib/create-service-supabase-client.js';
+import { decryptText } from './_lib/secure-data.js';
 import nodemailer from 'nodemailer';
 
 const letterIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -213,6 +214,48 @@ export default async function handler(req, res) {
     return respond(res, 429, { error: 'Please wait five minutes before retrying this email.' });
   }
 
+  let emailDetails;
+  try {
+    const { data: letter, error: letterError } = await supabase
+      .from('excuse_letters')
+      .select('id, student_id, dean_comment, dean_comment_envelope')
+      .eq('id', letterId)
+      .maybeSingle();
+    if (letterError) throw letterError;
+    if (!letter) throw new Error('LETTER_UNAVAILABLE');
+
+    const { data: student, error: studentError } = await supabase
+      .from('profiles')
+      .select('id, full_name, full_name_envelope')
+      .eq('id', letter.student_id)
+      .maybeSingle();
+    if (studentError) throw studentError;
+    if (!student) throw new Error('PROFILE_UNAVAILABLE');
+
+    emailDetails = {
+      ...claim,
+      student_name: decryptText(
+        student.full_name_envelope,
+        student.full_name,
+        'profiles',
+        student.id,
+        'full_name',
+      ),
+      dean_comment: decryptText(
+        letter.dean_comment_envelope,
+        letter.dean_comment,
+        'excuse_letters',
+        letter.id,
+        'dean_comment',
+      ),
+    };
+  } catch (error) {
+    const errorCode = safeErrorCode(error);
+    console.error('Could not decrypt student decision email details.', { code: errorCode });
+    await finishClaim(supabase, letterId, claim.decision, claim.claim_token, 'failed', errorCode);
+    return respond(res, 503, { error: 'The decision email could not be prepared from stored encrypted data.' });
+  }
+
   const gmailUser = process.env.GMAIL_USER;
   const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
   const appUrlSetting = process.env.APP_URL;
@@ -237,7 +280,7 @@ export default async function handler(req, res) {
   let transporter;
   try {
     transporter = createTransporter(gmailUser, gmailAppPassword);
-    await sendDecisionEmail(transporter, { ...claim, letter_id: letterId }, appOrigin);
+    await sendDecisionEmail(transporter, { ...emailDetails, letter_id: letterId }, appOrigin);
   } catch (error) {
     const errorCode = safeErrorCode(error);
     console.error('Student decision email delivery failed.', { code: errorCode });

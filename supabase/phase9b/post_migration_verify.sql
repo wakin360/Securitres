@@ -1,21 +1,17 @@
 -- Read-only post-migration verification for Phase 9B. Run each SELECT separately.
--- Run before provisioning any Dean assignment: this verification expects assignment history to be empty.
+-- Run immediately after migration, before controlled student mapping or Dean assignment provisioning.
 
--- Registry and student backfill.
+-- Registry seed and profile mapping state.
 SELECT id, canonical_name, is_active, created_at
 FROM public.academic_programs
 ORDER BY canonical_name;
 
-SELECT
-  id,
-  role,
-  program AS legacy_program,
-  program_id,
-  ap.canonical_name,
-  ap.is_active
-FROM public.profiles AS p
-LEFT JOIN public.academic_programs AS ap ON ap.id = p.program_id
-WHERE p.id = '6acac2cb-ba54-41a3-90fe-89e469ba1c5d'::uuid;
+SELECT role,
+       count(*) AS profile_count,
+       count(*) FILTER (WHERE program_id IS NOT NULL) AS mapped_profile_count
+FROM public.profiles
+GROUP BY role
+ORDER BY role;
 
 -- The Phase 9B migration intentionally inserts no Dean assignment.
 SELECT count(*) AS dean_assignment_count

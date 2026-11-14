@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { getSecureData, postSecureData } from './secureApi.js';
 
 const bucketName = 'excuse-evidence';
 const signedUrlLifetimeSeconds = 60;
@@ -70,17 +71,8 @@ export function validateEvidenceFile(file) {
 }
 
 export async function getStudentEvidence(letterId) {
-  const { client, user } = await getAuthenticatedStudent();
-  await getOwnedLetter(client, user.id, letterId);
-
-  const { data, error } = await client
-    .from('excuse_evidence')
-    .select('id, letter_id, storage_path, original_filename, mime_type, size_bytes, uploaded_at')
-    .eq('letter_id', letterId)
-    .order('uploaded_at', { ascending: true });
-
-  if (error) throw error;
-  return data.map(publicEvidenceRecord);
+  await getAuthenticatedStudent();
+  return getSecureData('student-evidence', { letterId });
 }
 
 export async function uploadStudentEvidence({ letterId, file }) {
@@ -101,19 +93,16 @@ export async function uploadStudentEvidence({ letterId, file }) {
 
   if (uploadError) throw uploadError;
 
-  const { data: evidence, error: insertError } = await client
-    .from('excuse_evidence')
-    .insert({
-      letter_id: letter.id,
-      storage_path: storagePath,
-      original_filename: file.name,
-      mime_type: file.type,
-      size_bytes: file.size,
-    })
-    .select('id, letter_id, storage_path, original_filename, mime_type, size_bytes, uploaded_at')
-    .single();
-
-  if (insertError) {
+  let evidence;
+  try {
+    evidence = await postSecureData('create-evidence-metadata', {
+      letterId: letter.id,
+      storagePath,
+      originalFilename: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+    });
+  } catch (insertError) {
     const { error: cleanupError } = await client.storage.from(bucketName).remove([storagePath]);
     if (cleanupError) {
       if (import.meta.env.DEV) console.error('Evidence metadata insert and uploaded-object cleanup both failed.', { insertError, cleanupError });

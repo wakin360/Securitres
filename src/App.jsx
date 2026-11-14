@@ -1509,7 +1509,7 @@ export default function App() {
     }
   }
 
-  const sortedLetters = [...visibleLetters].sort((a, b) => b.submitted.localeCompare(a.submitted));
+  const sortedLetters = [...visibleLetters].sort((a, b) => (b.submitted || '').localeCompare(a.submitted || ''));
   const deanLetterSummary = sortedLetters.reduce((summary, letter) => {
     if (letter.status === 'Pending') summary.pending += 1;
     if (letter.status === 'Approved') summary.approved += 1;
@@ -1969,6 +1969,6 @@ function Activity({ items, notifications, profileRole, email, displayName, loadi
       : notifications.slice(0, 3);
     return list.length ? <div className="notification-list">{list.map((item) => <div className="notification-item" key={item.id}><strong>{item.message}</strong><small>{profileRole === 'dean' ? item.user : item.email || 'Email not set'} · {formatDate(item.createdAt)}</small></div>)}</div> : <div className="empty-state">No notifications yet.</div>;
   }
-  const recent = [...items].sort((a, b) => b.submitted.localeCompare(a.submitted)).slice(0, 3);
+  const recent = [...items].sort((a, b) => (b.submitted || '').localeCompare(a.submitted || '')).slice(0, 3);
   return recent.length ? <div className="activity">{recent.map((letter) => <div className="activity-item" key={letter.id}><div className="activity-dot">{letter.status === 'Approved' ? '✓' : letter.status === 'Pending' ? '…' : '!'}</div><div><div className="activity-text"><strong>{letter.id}</strong> · {letter.studentName}<br />{letter.status}{letter.comment ? `: ${letter.comment}` : ''}</div><div className="activity-time">Submitted {formatDate(letter.submitted)}</div></div></div>)}</div> : <div className="empty-state">No recent activity.</div>;
 }
