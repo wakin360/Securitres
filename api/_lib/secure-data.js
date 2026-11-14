@@ -63,7 +63,11 @@ export async function getProfile(supabase, userId) {
 }
 
 export function encryptionContext(table, rowId, field) {
-  const environment = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development';
+  const environment = process.env.SECURITRES_ENCRYPTION_CONTEXT
+    || process.env.VERCEL_ENV
+    || process.env.NODE_ENV
+    || 'development';
+
   return { environment, table, rowId, field };
 }
 
