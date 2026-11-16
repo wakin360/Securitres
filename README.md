@@ -1,3 +1,29 @@
+#Library
+Library	Purpose
+node:crypto	Built-in Node.js library used for encryption, decryption, and generating secure random keys.
+
+#Important functions
+Function	Brief explanation
+encryptValue()	Encrypts sensitive information.
+decryptValue()	Decrypts encrypted information back to its original form.
+validateContext()	Checks whether the encryption details are correct.
+validateEnvelope()	Checks whether the encrypted data is valid.
+getKek()	Gets the encryption key from server environment variables.
+getActiveKekVersion()	Checks which encryption key version is currently active.
+secureRandomBytes()	Generates random, secure encryption keys and IVs.
+encryptBytes()	Performs the actual AES-256-GCM encryption.
+authenticateDecrypt()	Decrypts data and checks if it has been tampered with.
+buildAad()	Adds extra information to protect encrypted data from being moved to another record or field.
+
+#Other important components
+- AES-256-GCM – The encryption algorithm used to protect data.
+- DEK – A temporary key used to encrypt the actual information.
+- KEK – A key used to protect the DEK.
+- IV – A random value used during encryption.
+- Authentication Tag – Helps detect if encrypted data has been changed.
+In simple words: node:crypto provides the tools, encryptValue() locks the information, and decryptValue() unlocks it when authorized.
+
+
 # UA Digital Excuse Letter System
 
 A React/Vite workflow prototype for the University of the Assumption. It retains the prototype's navy, red, and gold identity, responsive dashboards, student submission form, Dean review flow, professor view, and locally served university seal.
