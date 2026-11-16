@@ -1,28 +1,44 @@
-#Library
-Library	Purpose
-node:crypto	Built-in Node.js library used for encryption, decryption, and generating secure random keys.
+## Encryption Library and Functions
 
-#Important functions
-Function	Brief explanation
-encryptValue()	Encrypts sensitive information.
-decryptValue()	Decrypts encrypted information back to its original form.
-validateContext()	Checks whether the encryption details are correct.
-validateEnvelope()	Checks whether the encrypted data is valid.
-getKek()	Gets the encryption key from server environment variables.
-getActiveKekVersion()	Checks which encryption key version is currently active.
-secureRandomBytes()	Generates random, secure encryption keys and IVs.
-encryptBytes()	Performs the actual AES-256-GCM encryption.
-authenticateDecrypt()	Decrypts data and checks if it has been tampered with.
-buildAad()	Adds extra information to protect encrypted data from being moved to another record or field.
+### 1. Library
 
-#Other important components
-- AES-256-GCM – The encryption algorithm used to protect data.
-- DEK – A temporary key used to encrypt the actual information.
-- KEK – A key used to protect the DEK.
-- IV – A random value used during encryption.
-- Authentication Tag – Helps detect if encrypted data has been changed.
-In simple words: node:crypto provides the tools, encryptValue() locks the information, and decryptValue() unlocks it when authorized.
+| Library | Purpose |
+|---|---|
+| `node:crypto` | Built-in Node.js library used for encryption, decryption, and generating secure random keys. |
 
+### 2. Important Functions
+
+| Function | Description |
+|---|---|
+| `encryptValue()` | Encrypts sensitive information before it is stored. |
+| `decryptValue()` | Decrypts encrypted information and restores its original form. |
+| `validateContext()` | Checks whether the encryption context is valid. |
+| `validateEnvelope()` | Checks whether the encrypted data has the correct structure and format. |
+| `getKek()` | Retrieves the encryption key from server environment variables. |
+| `getActiveKekVersion()` | Identifies which encryption key version is currently active. |
+| `secureRandomBytes()` | Generates cryptographically secure random values for encryption keys and IVs. |
+| `encryptBytes()` | Performs the actual AES-256-GCM encryption. |
+| `authenticateDecrypt()` | Decrypts data and verifies its authenticity to detect tampering. |
+| `buildAad()` | Creates additional authentication data (AAD) that binds encrypted information to its specific environment, table, row, and field. |
+
+### 3. Other Important Components
+
+| Component | Description |
+|---|---|
+| **AES-256-GCM** | Encryption algorithm used to protect sensitive information and detect unauthorized changes. |
+| **DEK (Data Encryption Key)** | Random key used to encrypt the actual information. |
+| **KEK (Key Encryption Key)** | Key used to encrypt and protect the DEK. |
+| **IV (Initialization Vector)** | Random value used during encryption to help ensure that encryption produces unique results. |
+| **Authentication Tag** | Verifies that encrypted data has not been modified or tampered with. |
+| **AAD (Additional Authenticated Data)** | Extra information authenticated during encryption to help prevent encrypted data from being used in a different record or field. |
+
+### 4. How It Works
+
+The `node:crypto` library provides the tools needed for encryption and decryption. The `encryptValue()` function encrypts sensitive information, while `decryptValue()` decrypts it when needed.
+
+Securitres uses AES-256-GCM with envelope encryption, where a DEK encrypts the actual information and a KEK protects the DEK.
+
+This helps protect sensitive information and detect unauthorized modifications to encrypted data.
 
 # UA Digital Excuse Letter System
 
